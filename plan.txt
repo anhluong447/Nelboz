@@ -1,0 +1,207 @@
+===============================================================
+FACEBOOK AUTO-COMMENT/REPLY BOT — TECHNICAL IMPLEMENTATION PLAN
+===============================================================
+Mục đích: Dự án học kỹ thuật cá nhân (automation, computer vision,
+ML nhẹ, LLM integration). Chạy trên tài khoản cá nhân, dùng Chrome
+thật, điều khiển ở tầng OS (không dùng DOM/API Facebook).
+
+Nguyên tắc thiết kế:
+- Hạn chế tối đa model pretrained sẵn (YOLO/OCR/vision-LM có sẵn) —
+  ưu tiên train riêng các model nhẹ, tự thiết kế.
+- Chỉ dùng LLM API (cloud) cho bước cần hiểu ngôn ngữ tự nhiên/sinh
+  văn bản — mọi thứ liên quan tới thị giác/UI xử lý bằng ML tự train
+  hoặc thuật toán cổ điển (OpenCV, TF-IDF...).
+- Mọi thao tác chuột/bàn phím phải mô phỏng hành vi người thật
+  (easing, delay ngẫu nhiên, gõ từng ký tự).
+
+===============================================================
+1. KIẾN TRÚC TỔNG QUAN — 2 FLOW CHÍNH, SHARE CHUNG MODULE
+===============================================================
+
+FLOW A — Comment bài viết mới (post feed)
+FLOW B — Reply comment trong 1 thread
+
+Module dùng chung giữa 2 flow:
+  - Capture & window management
+  - CRNN OCR (đọc text từ ảnh)
+  - TF-IDF + Logistic Regression filter (lọc nhanh có đáng bận tâm không)
+  - LLM API call wrapper (quyết định + sinh text, ép JSON schema)
+  - Input controller (chuột/bàn phím có easing + delay ngẫu nhiên)
+  - Rate limiter / scheduler
+
+Module riêng từng flow:
+  - Flow A: Background-segmentation cho post card + anchor detection
+    hàng like/comment/share
+  - Flow B: Detect nút "xem thêm bình luận/trả lời", group comment
+    unit (text + anchor), phân biệt cấp nested (comment vs reply)
+
+===============================================================
+2. MODULE CHI TIẾT (DÙNG CHUNG)
+===============================================================
+
+--- 2.1 Capture & Window Management ---
+- Lib: mss (chụp màn hình nhanh), pygetwindow hoặc pywin32 (xác định
+  cửa sổ Chrome đang active, lấy đúng bounding box).
+- Luôn xác nhận cửa sổ active đúng là Chrome + đúng tab trước khi
+  capture, tránh click nhầm khi user đổi tab/cửa sổ khác che lên.
+- Output: ảnh RGB crop đúng vùng viewport Chrome.
+
+--- 2.2 CRNN OCR (tự train) ---
+- Kiến trúc: CNN (vài lớp conv nhẹ) + BiLSTM + CTC loss — kiến trúc
+  CRNN kinh điển cho text-line recognition.
+- Data: synthetic — tự render text tiếng Việt (có dấu) lên nền giống
+  Facebook (font, size, màu chữ xám/đen thường dùng), augment thêm
+  nhiễu nhẹ (blur, compression artifact) để giống ảnh chụp màn hình
+  thật.
+- Input: ảnh crop 1 vùng text (dòng hoặc block nhỏ) → Output: chuỗi text.
+- KHÔNG dùng Tesseract/PaddleOCR/EasyOCR pretrained.
+
+--- 2.3 TF-IDF + Logistic Regression Filter ---
+- Mục đích: lọc rẻ tiền trước khi gọi LLM API tốn phí — quyết định
+  nhanh "có đáng bận tâm bài/comment này không" (vd: bỏ qua bài
+  quảng cáo, bài toàn ảnh không có text, spam).
+- Train: vài trăm mẫu tự gán nhãn (đáng/không đáng).
+- Input: chuỗi text (từ OCR) → Output: bool.
+
+--- 2.4 LLM API Wrapper ---
+- Gọi model cloud (Claude/GPT) để:
+  a) Quyết định có nên comment/reply hay không (dù đã qua filter rẻ)
+  b) Sinh nội dung comment/reply tự nhiên, đúng giọng văn mong muốn
+- Ép output JSON schema cố định, ví dụ:
+  {"should_act": bool, "text": string}
+- Với Flow B, context gửi kèm cần có thêm: text bài viết gốc, text
+  comment đang xét, text các comment/reply liền trước trong cùng
+  thread (để hiểu mạch hội thoại).
+
+--- 2.5 Input Controller (mô phỏng hành vi người) ---
+- Lib: pynput (khuyên dùng hơn PyAutoGUI vì control chi tiết hơn).
+- Di chuột: đường cong Bezier, tốc độ không đều, thỉnh thoảng
+  overshoot rồi correct nhẹ.
+- Gõ text: từng ký tự một, tốc độ dao động ngẫu nhiên (không paste
+  nguyên cụm).
+- Delay: phân phối ngẫu nhiên (không uniform) trước mỗi hành động
+  (di chuột, click, gõ, enter).
+- Scroll: đoạn ngẫu nhiên, không đều, xen kẽ giữa các lần xử lý card.
+
+--- 2.6 Rate Limiter / Scheduler ---
+- Flow A: giới hạn số comment/giờ ở mức thấp, rải đều theo thời gian.
+- Flow B: giới hạn chặt hơn Flow A — tối đa 1-2 reply/thread, cách
+  nhau vài phút — vì reply liên tục trong cùng 1 thread là pattern
+  dễ bị soi hơn rải comment qua nhiều bài.
+
+===============================================================
+3. FLOW A — COMMENT BÀI VIẾT (POST FEED)
+===============================================================
+
+Pipeline:
+  [1] Capture vùng Chrome active
+  [2] Background-segmentation: tách card theo dải màu nền (KHÔNG
+      dùng contour/edge của ảnh nội dung, vì ảnh trong post tạo
+      nhiễu edge ngẫu nhiên). Quét theo hàng, tìm chỗ đổi màu nền
+      liên tục (nền feed xám nhạt xen giữa các card) để xác định
+      ranh giới card.
+  [3] Anchor detection: CNN nhỏ (3-4 lớp conv) hoặc HOG+SVM, train
+      riêng để nhận diện hàng icon "Like · Comment · Share" — đây là
+      mốc hình dạng ổn định nhất, không đổi dù nội dung ảnh phía
+      trên khác nhau.
+      => Augmentation bắt buộc: chèn ảnh nội dung ngẫu nhiên (người,
+         vật, screenshot, ảnh trơn 1 màu) vào phần trên của card mock
+         khi train, để model học đặc trưng phân biệt nằm ở khung UI
+         cố định, bất biến với nội dung ảnh.
+  [4] Suy ra vị trí comment box: dùng offset CỐ ĐỊNH tính từ đáy
+      anchor (không dùng tọa độ tuyệt đối) — vì chiều cao card thay
+      đổi tùy có/không có ảnh, carousel, v.v.
+  [5] Crop vùng text phía trên anchor → CRNN OCR (module 2.2)
+  [6] TF-IDF + LogReg filter (module 2.3)
+  [7] Nếu pass → LLM API (module 2.4) quyết định + sinh comment
+  [8] Input controller: di chuột tới comment box → click → gõ từng
+      ký tự → Enter (module 2.5)
+  [9] Rate limiter (module 2.6) → scroll ngẫu nhiên → quay lại [1]
+
+===============================================================
+4. FLOW B — REPLY COMMENT TRONG THREAD
+===============================================================
+
+Khác biệt với Flow A:
+  - Cấu trúc lồng nhau (nested): comment cấp 1 vs reply cấp 2 (thụt
+    indent trục X, avatar nhỏ hơn)
+  - Cần mở rộng thread trước khi thấy hết nội dung (nút "Xem thêm
+    bình luận" / "Xem trả lời")
+  - Mỗi comment có nút Reply riêng — phải click ĐÚNG nút Reply thuộc
+    về comment đang muốn trả lời, không phải ô comment chung
+
+Pipeline:
+  [1] Đã ở trong 1 post (chuyển từ Flow A hoặc mở trực tiếp)
+  [2] Detect nút "Xem thêm bình luận" / "Xem trả lời" → click mở
+      rộng nếu có (lặp lại tới khi hết nút hoặc đạt giới hạn độ sâu)
+  [3] Background-segmentation cho khối comment:
+      - Phân biệt cấp nested bằng offset trục X (thụt indent), KHÔNG
+        cần train riêng model cho từng cấp — dùng ngưỡng offset
+        (vd: reply cấp 2 lệch phải thêm ~40-60px so với comment cấp 1)
+  [4] Với mỗi comment/reply — GROUP THEO CẶP (quan trọng nhất):
+      - Luôn detect anchor "Like · Reply · thời gian" CÙNG với block
+        text ngay phía trên nó thành 1 "comment unit" duy nhất.
+      - KHÔNG detect anchor rời rạc rồi đoán nút Reply thuộc về ai —
+        vì mọi anchor đều giống hệt nhau về hình dạng, dễ nhầm.
+      - Dùng khoảng cách trục Y giữa các anchor liên tiếp để tách
+        các comment unit; nếu khoảng cách bất thường (quá gần) thì
+        đối chiếu thêm offset X để xác định có phải reply lồng không.
+  [5] Crop vùng text của từng comment unit → CRNN OCR (module 2.2,
+      tái dùng nguyên)
+  [6] TF-IDF + LogReg filter (module 2.3, tái dùng nguyên)
+  [7] Nếu pass → LLM API (module 2.4):
+      context gửi kèm = text bài viết gốc + text comment đang xét +
+      text các comment/reply liền trước trong cùng thread
+  [8] Click ĐÚNG nút Reply nằm trong anchor của comment unit đó
+  [9] Xác nhận ô input xuất hiện đúng vị trí (và có @tag tên nếu FB
+      tự chèn) trước khi gõ — tránh gõ nhầm vào ô comment gốc nếu
+      bước detect bị lệch
+  [10] Input controller: gõ từng ký tự → Enter (module 2.5)
+  [11] Rate limiter riêng cho reply (module 2.6, giới hạn chặt hơn
+       Flow A) → sang comment/reply kế tiếp
+
+===============================================================
+5. THỨ TỰ IMPLEMENT ĐỀ XUẤT (ưu tiên giảm rủi ro kỹ thuật)
+===============================================================
+
+Giai đoạn 1 — Validate phần rủi ro cao nhất trước:
+  1. Background-segmentation + anchor detection cho Flow A (module 3
+     bước 2-3). Test bằng cách chụp vài chục ảnh feed thật, kiểm tra
+     tách card có ổn định không TRƯỚC KHI đầu tư train CRNN/filter.
+  2. Comment-unit grouping cho Flow B (module 4 bước 4) — phần khó
+     nhất của flow reply, nên prototype sớm song song.
+
+Giai đoạn 2 — Dựng khung end-to-end (dùng tọa độ giả để test luồng):
+  3. Input controller (module 2.5) — easing Bezier, delay ngẫu nhiên,
+     gõ từng ký tự.
+  4. LLM API wrapper (module 2.4) — ép JSON schema, test với vài
+     context mẫu viết tay.
+  5. Rate limiter (module 2.6).
+
+Giai đoạn 3 — Các module cần data tự gán nhãn (tốn thời gian nhất):
+  6. CRNN OCR (module 2.2) — chuẩn bị data synthetic render text
+     tiếng Việt trước, sau đó train.
+  7. TF-IDF + Logistic Regression filter (module 2.3) — gán nhãn vài
+     trăm mẫu.
+
+Giai đoạn 4 — Tích hợp toàn bộ:
+  8. Ghép Flow A hoàn chỉnh, test thực tế trên tài khoản cá nhân với
+     rate limit thấp.
+  9. Ghép Flow B, test riêng biệt trước khi chạy nối tiếp Flow A.
+  10. Theo dõi hành vi thực tế, tinh chỉnh rate limit / delay pattern
+      nếu thấy dấu hiệu bị flag.
+
+===============================================================
+6. GHI CHÚ RỦI RO (nhắc lại, quan trọng)
+===============================================================
+- Vi phạm Điều khoản dịch vụ Facebook về automation, kể cả trên tài
+  khoản cá nhân. Rủi ro cao nhất là bị khóa tài khoản.
+- Nên luôn test với rate limit rất thấp và theo dõi sát trong giai
+  đoạn đầu.
+- Không dùng vào mục đích seeding/tăng tương tác giả cho fanpage
+  hay tài khoản người khác — ngoài phạm vi "học kỹ thuật cá nhân"
+  đã thống nhất.
+
+===============================================================
+HẾT PLAN
+===============================================================
