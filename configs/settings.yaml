@@ -1,0 +1,30 @@
+app:
+  name: "FacebookAutoBot"
+  log_level: "INFO"
+
+target_window:
+  title_pattern: ".*Chrome.*"
+  tab_title_pattern: ".*Facebook.*"
+  dpi_aware: true
+
+flow_a:
+  max_comments_per_hour: 5
+  min_interval_seconds: 300
+  scroll_min_px: 300
+  scroll_max_px: 600
+
+flow_b:
+  max_replies_per_hour: 3
+  max_replies_per_thread: 2
+  min_interval_seconds: 400
+  indent_level_px: 45
+
+input:
+  mouse_min_speed: 400.0
+  mouse_max_speed: 1200.0
+  bezier_deviation_max: 60.0
+  overshoot_chance: 0.25
+  typing_wpm_min: 45
+  typing_wpm_max: 95
+  action_delay_min_sec: 0.8
+  action_delay_max_sec: 2.5
