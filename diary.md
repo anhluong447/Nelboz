@@ -240,11 +240,34 @@ Người dùng đã chụp thêm 24 ảnh màn hình Feed mới từ Cốc Cốc
 
 ---
 
-## 9. Kế Hoạch Tiếp Theo (Phase 2 & 3)
+## 10. Hoàn Thành Phase 2: Tương Tác Chuột/Phím Mô Phỏng Sinh Học & Chế Độ Dry-Run
 
-1. **Giai đoạn 2 (Dựng khung điều khiển & tích hợp):**
-   * Hoàn thiện mô phỏng tương tác: tích hợp `PynputController` với tọa độ thực tế đã đo đạc từ Flow A và Flow B.
-   * Tạo mock pipeline kiểm thử vòng lặp: Scroll Feed $\to$ Detect Card $\to$ Click Comment Button $\to$ Gõ comment thử nghiệm ở chế độ dry-run.
-2. **Giai đoạn 3 (CRNN OCR & TF-IDF Filter):**
-   * Chuẩn bị bộ sinh dữ liệu tổng hợp (Synthetic Data Generator) render các dòng text tiếng Việt (font Arial, Roboto, Segoe UI trên nền trắng/xám giống Facebook) để train CRNN OCR siêu nhẹ (CNN + BiLSTM + CTC).
-   * Xây dựng bộ lọc từ vựng TF-IDF + Logistic Regression để sàng lọc bài viết rác trước khi gọi LLM.
+Tiến hành triển khai toàn bộ hệ thống tương tác người thật và tích hợp trực tiếp với kết quả đo đạc từ Phase 1:
+
+1. **Cơ Chế Chốt Ngắt Khẩn Cấp (Emergency Fail-Safe / Kill Switch):**
+   * File [fail_safe.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/input/fail_safe.py):
+     * Khởi chạy `KeyboardListener` nền theo dõi phím nóng **`[ESC]`**.
+     * Tích hợp kiểm tra góc chết con trỏ chuột: nếu người dùng giật chuột về góc trên bên trái ($X \le 5, Y \le 5$), hệ thống lập tức kích hoạt cờ dừng khẩn cấp.
+     * Cung cấp phương thức `check()` ném ngoại lệ `EmergencyStopException` ngắt luồng ngay tức khắc, trả lại toàn quyền kiểm soát thiết bị cho người dùng.
+
+2. **Nâng Cấp Bộ Điều Khiển Sinh Học (`PynputHumanController`):**
+   * File [pynput_controller.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/input/pynput_controller.py):
+     * **Di chuột mượt:** Tích hợp đường cong Cubic Bézier, độ trễ từng bước biến thiên $5-18\text{ms}$, thêm độ rung tay sinh học ngẫu nhiên tại đích $\pm 2\text{px}$.
+     * **Click tự nhiên:** Thời gian đè phím chuột trái (`mouse.press` $\to$ `mouse.release`) phân phối ngẫu nhiên $50-120\text{ms}$.
+     * **Gõ phím:** Tốc độ gõ WPM biến thiên theo phân phối chuẩn, có độ dừng lâu hơn khi gõ dấu cách hoặc dấu câu.
+     * **Dọn sạch an toàn (`clear_input`):** Thực hiện `Ctrl + A` $\to$ `Backspace` có giãn cách thời gian để xóa sạch ô nhập thử nghiệm.
+     * **Cuộn trang mượt:** Chia quãng đường cuộn thành các nấc cuộn vi mô (micro-scrolls) ngẫu nhiên.
+     * Mỗi bước lặp đều kiểm tra `fail_safe.check()` để có thể dừng bất cứ mili-giây nào khi người dùng bấm ESC.
+
+3. **Nâng Cấp Use Case Flow A & Chế Độ Dry-Run:**
+   * File [feed_comment_flow.py](file:///d:/Shits/Prj/autoBot/src/application/use_cases/feed_comment_flow.py):
+     * Sử dụng `anchor_detector.get_comment_button_center()` để lấy đúng tâm nút Bình luận tại $(668, Y_{\text{anchor}} + 16)$.
+     * Khi cấu hình `dry_run = True`: Bot di chuột tới nút $\to$ Click mở ô comment $\to$ Gõ text bản nháp $\to$ Tạm dừng $1.5 - 2.5\text{s}$ để người dùng quan sát $\to$ Gọi `clear_input()` dọn sạch $\to$ **Tuyệt đối không bấm Enter gửi thật** $\to$ Cuộn màn hình tìm bài tiếp theo.
+
+4. **Bộ Công Cụ Kiểm Thử Thực Nghiệm:**
+   * [scripts/test_human_interaction.py](file:///d:/Shits/Prj/autoBot/scripts/test_human_interaction.py): Kiểm thử nhanh 4 hành vi riêng biệt: di chuột Bézier, click tự nhiên, gõ văn bản, và dọn text.
+   * [scripts/run_flow_a_dryrun.py](file:///d:/Shits/Prj/autoBot/scripts/run_flow_a_dryrun.py): Chạy thử nghiệm thực tế 1 chu trình Flow A hoàn chỉnh trên trình duyệt Cốc Cốc đang mở Facebook.
+
+5. **Kết Quả Kiểm Thử (Test Suite):**
+   * Bổ sung `tests/test_fail_safe.py` và cập nhật `tests/test_use_cases.py`.
+   * **20/20 unit tests PASSED** (0.50s).
