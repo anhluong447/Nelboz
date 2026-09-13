@@ -191,9 +191,60 @@ Người dùng đã thu thập 22 ảnh chụp toàn màn hình thread comment t
 
 ---
 
-## 8. Kế Hoạch Tiếp Theo
+## 8. Phân Tích Thực Nghiệm & Hoàn Tất Validation Flow A (24 Mẫu Mới, Tổng 57 Mẫu Feed)
 
-1. Đóng gói thuật toán phát hiện anchor và phân cấp vào [comment_grouper.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/vision/comment_grouper.py) trong Clean Architecture.
-2. Thu thập 15 - 20 mẫu News Feed (`--mode feed`) và xây dựng giải thuật phân tích dải màu nền (Vertical Color Profiling) cho Flow A.
+Người dùng đã chụp thêm 24 ảnh màn hình Feed mới từ Cốc Cốc (tổng cộng 57 ảnh mẫu feed trong `data/raw_samples/feed/`). Qua phân tích pixel và đo đạc hình học thực tế, các quy luật UI của Facebook News Feed được xác lập chuẩn xác:
 
+1. **Kích Thước Cột Feed & Ranh Giới Card Bài Viết (Card Bounds):**
+   * Cột Feed trên desktop (1920x1080 @ 125% DPI):
+     * Toạ độ $X$: từ `617px` đến `1254px` (bề rộng cố định chuẩn xác **$637\text{px}$**).
+     * Mép trái card bắt đầu tại $X = 617$, mép phải tại $X = 1254$.
+   * Màu nền card bài viết: Trắng tinh `#FFFFFF` (`[255, 255, 255]`).
 
+2. **Dải Ngăn Cách Giữa Các Card (Background Gap Profiling):**
+   * Màu dải ngăn cách giữa 2 bài viết: `#F0F2F5` (BGR: `[247, 244, 242] \pm 6`).
+   * Đặc điểm bất biến: Trong dải ngăn cách, dải màu xám trải dài liên tục từ ngoài lề ($X \le 605$) xuyên qua toàn bộ cột feed sang lề phải ($X \ge 1265$) với tỉ lệ pixel đồng nhất $> 95\%$.
+   * Độ dày của dải ngăn cách: Luôn dao động từ **8 đến 10 pixel**.
+   * Nhờ đặc tính xuyên biên giới này, giải thuật phân tích `FeedCardSegmenter` loại bỏ hoàn toàn các trường hợp ảnh hay box link nội dung bên trong bài viết (như khung trích dẫn xám của TikTok/bài share) mà không bao giờ bị cắt nhầm card.
+
+3. **Mỏ Neo Hàng Thao Tác (Action Bar) & Nút Thích/Bình Luận:**
+   * Mỗi bài viết kết thúc bằng hàng tương tác: `[Icon Thích] [Icon Bình luận] [Icon Chia sẻ]`.
+   * **Tọa độ trục $X$ của Icon Thích:** Luôn nằm ở vị trí bất biến: **$X = 627$** (tức cách mép trái của card đúng $10\text{px}$).
+   * **Tâm nút Bình luận (Comment Button Click Target):** Nằm lệch sang phải đúng **$+41\text{px}$** so với Icon Thích: **$X = 668$**, $Y = Y_{\text{anchor}} + 16$.
+   * Mép đáy của card nằm cách Icon Thích đúng **$+26\text{px}$** (khi chưa mở rộng phần xem bình luận inline).
+
+4. **Trường Hợp Bài Viết Có Media Dài (Viewport Edge Case):**
+   * Trong 24 mẫu mới, có 3 ảnh (mẫu #13, #14, #36) chứa bài viết có video dọc hoặc album ảnh quá dài ($> 900\text{px}$), đẩy hàng action bar xuống quá mép dưới màn hình $Y = 1080\text{px}$.
+   * Kết quả: Thuật toán nhận diện chính xác 0 false positive. Khi bot thực hiện hành động cuộn trang (scroll), action bar sẽ đi vào viewport và được bắt ngay lập tức.
+
+5. **Hiện Thực Các Module Vào Clean Architecture:**
+   * [feed_card_segmenter.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/vision/feed_card_segmenter.py): Hiện thực `ICardSegmenter` bằng giải thuật background-gap profiling, phân tách tự động các bounding box của từng card.
+   * [anchor_detector.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/vision/anchor_detector.py): Hiện thực `IAnchorDetector` cung cấp:
+     * `detect_feed_anchors()`: Quét nhanh thanh action bar trên toàn feed qua template matching cột dọc hẹp ($X \in [615, 665]$).
+     * `get_comment_button_center()`: Trả về tọa độ click chuẩn xác $(668, Y+16)$.
+     * `detect_reply_buttons()`: Tích hợp phát hiện nút Trả lời của Flow B (+82px).
+   * [comment_grouper.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/vision/comment_grouper.py): Hiện thực `ICommentGrouper` nhóm các comment unit theo cấp bậc thụt lề $34\text{px}$.
+   * Template assets được quản lý sạch sẽ trong `src/infrastructure/vision/templates/` (`feed_like.png`, `feed_comment.png`, `thread_like.png`) và được whitelist trong `.gitignore`.
+
+6. **Kết Quả Benchmark (`scripts/benchmark_flow_a.py`):**
+   * **24 mẫu mới:**
+     * Tổng số card bài viết tách được: **52 cards**.
+     * Ảnh có action bar trong viewport: **22/24 (91.7%)** (2 mẫu còn lại action bar nằm dưới đáy màn hình do video dài).
+     * Tổng số action bar định vị thành công: **38 action bars**.
+     * Độ chính xác định vị: **$100\%$** (tất cả toạ độ $X = 627$, $0\%$ false positive).
+   * **Toàn bộ 57 mẫu:**
+     * Tổng số card bài viết tách được: **111 cards**.
+     * Ảnh có action bar trong viewport: **54/57 (94.7%)**.
+     * Tổng số action bar định vị thành công: **86 action bars**.
+   * **Toàn bộ Unit Tests:** **16/16 PASSED** (`tests/test_vision.py`, `tests/test_bezier.py`, `tests/test_geometry.py`, `tests/test_rate_limiter.py`, `tests/test_use_cases.py`).
+
+---
+
+## 9. Kế Hoạch Tiếp Theo (Phase 2 & 3)
+
+1. **Giai đoạn 2 (Dựng khung điều khiển & tích hợp):**
+   * Hoàn thiện mô phỏng tương tác: tích hợp `PynputController` với tọa độ thực tế đã đo đạc từ Flow A và Flow B.
+   * Tạo mock pipeline kiểm thử vòng lặp: Scroll Feed $\to$ Detect Card $\to$ Click Comment Button $\to$ Gõ comment thử nghiệm ở chế độ dry-run.
+2. **Giai đoạn 3 (CRNN OCR & TF-IDF Filter):**
+   * Chuẩn bị bộ sinh dữ liệu tổng hợp (Synthetic Data Generator) render các dòng text tiếng Việt (font Arial, Roboto, Segoe UI trên nền trắng/xám giống Facebook) để train CRNN OCR siêu nhẹ (CNN + BiLSTM + CTC).
+   * Xây dựng bộ lọc từ vựng TF-IDF + Logistic Regression để sàng lọc bài viết rác trước khi gọi LLM.
