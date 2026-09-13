@@ -271,3 +271,33 @@ Tiến hành triển khai toàn bộ hệ thống tương tác người thật v
 5. **Kết Quả Kiểm Thử (Test Suite):**
    * Bổ sung `tests/test_fail_safe.py` và cập nhật `tests/test_use_cases.py`.
    * **20/20 unit tests PASSED** (0.50s).
+
+---
+
+## 11. Hoàn Thành & Xác Thực Live Thực Tế Flow B (Option 2) — Trả Lời Bình Luận & Mở Rộng "Xem x câu trả lời"
+
+Sau khi hoàn thiện Flow A, dự án tiếp tục mở rộng sang **Flow B (Option 2)** — Tương tác trả lời bình luận trong thread/modal bài viết Facebook với tính năng mở rộng danh sách câu trả lời lồng nhau:
+
+1. **Cơ Chế Nhận Diện Nút "Xem x câu trả lời" / "Xem x phản hồi":**
+   - Phân tích 22 mẫu thread thực tế cho thấy nút mở rộng replies luôn bắt đầu bằng icon chevron chỉ xuống (`v`) và chữ "Xem" màu xám đặc trưng `#65676B`.
+   - Trích xuất bộ template chuẩn:
+     * `src/infrastructure/vision/templates/thread_expand_chevron.png` ($13 \times 12\text{px}$).
+     * `src/infrastructure/vision/templates/thread_expand_xem.png` ($28 \times 15\text{px}$).
+   - Xây dựng module `ExpandReplyDetector` ([expand_reply_detector.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/vision/expand_reply_detector.py)) áp dụng kỹ thuật **Co-occurrence Template Matching**:
+     * Chỉ kích hoạt khi cả Chevron và chữ "Xem" xuất hiện cùng một dòng ($\Delta X \in [10, 25]\text{px}$, $|\Delta Y| \le 8\text{px}$).
+     * Tự động loại bỏ dropdown đổi avatar ở đáy modal ($Y > \text{height} - 85$).
+     * Độ chính xác: Nhận diện đúng **$37/37$ nút mở rộng** trên toàn bộ 22 ảnh mẫu thực nghiệm, $0$ false-positive.
+
+2. **Quy Trình Tương Tác End-to-End Thông Minh (`scripts/run_flow_b_dryrun.py`):**
+   - Hỗ trợ linh hoạt cả 2 ngữ cảnh:
+     * **Ngữ cảnh 1 (Đang ở News Feed chưa mở bình luận):** Bot tự động phát hiện thanh action bar của bài viết (`feed_like.png`), click vào nút Bình luận (`💬`) để bung danh sách comment của bài viết đó ra.
+     * **Ngữ cảnh 2 (Bình luận đã hiển thị inline hoặc trong modal):** Bot phát hiện nút "Xem x câu trả lời / Xem x phản hồi", di chuột Bézier mượt mà tới nút và click mở rộng drop box câu trả lời lồng nhau (Level 2), sau đó chờ 1.5s và re-capture.
+   - `CommentThreadGrouper` phân tích cấu trúc cây bình luận, ưu tiên chọn comment Level 2 vừa bung ra hoặc comment Level 1.
+   - Di chuột Bézier tới nút "Trả lời" tương ứng ($X_{\text{like}} + 82, Y_{\text{like}}$) $\to$ Click kích hoạt ô reply $\to$ Gõ thử draft text tự nhiên với random key delay và micro-jitter $\to$ Dừng quan sát trực quan 2.5s $\to$ Kích hoạt safeguard xóa sạch bằng `Ctrl+A` -> `Backspace` (an toàn 100%, không submit thật).
+   - Tích hợp chốt ngắt khẩn cấp `[ESC]` toàn thời gian.
+
+3. **Kiểm Thử & Xác Thực:**
+   - Tạo bộ unit test `tests/test_expand_reply_detector.py`.
+   - Toàn bộ test suite: **23/23 tests PASSED** (0.58s).
+   - Chạy thử nghiệm live dry-run trực tiếp trên trình duyệt Cốc Cốc: Người dùng kiểm tra trực quan và xác nhận hoạt động hoàn hảo ("Ok đã ngon").
+
