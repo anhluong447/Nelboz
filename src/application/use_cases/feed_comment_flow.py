@@ -132,28 +132,30 @@ class FeedCommentUseCase:
                 ctx.skipped_count += 1
                 continue
 
-            # 10. Compute comment box coordinate (fixed offset below anchor)
-            # Anchor bottom relative to absolute card
-            comment_box_y = abs_card_box.y + anchor_box.bottom + 45
-            comment_box_x = abs_card_box.x + (abs_card_box.width // 2)
-            comment_click_pt = Point(x=comment_click_target(comment_box_x), y=comment_box_y)
+            # 10. Compute comment box coordinate using AnchorDetector (+41px from Like icon)
+            comment_click_pt = self.anchor_detector.get_comment_button_center(anchor_box.offset(abs_card_box.x, abs_card_box.y))
 
             # 11. Human-like simulation
-            logger.info("Posting comment: '%s'...", decision.text)
+            logger.info("Target comment button at (%d, %d)", comment_click_pt.x, comment_click_pt.y)
             self.input_ctrl.move_to(comment_click_pt)
             self.input_ctrl.sleep_random(0.2, 0.5)
             self.input_ctrl.click(comment_click_pt)
-            self.input_ctrl.sleep_random(0.5, 1.2)
+            self.input_ctrl.sleep_random(0.6, 1.2)
 
+            logger.info("Typing comment draft: '%s'...", decision.text)
             self.input_ctrl.type_text(decision.text)
-            self.input_ctrl.sleep_random(0.3, 0.8)
-            self.input_ctrl.press_key("enter")
+            self.input_ctrl.sleep_random(1.2, 2.0)
 
-            # 12. Record action
-            self.limiter.record_action("flow_a_comment")
-            ctx.comments_submitted += 1
+            if self.config.dry_run:
+                logger.info("[DRY-RUN] Text typed for observation. Clearing input field without submitting...")
+                self.input_ctrl.clear_input()
+                self.input_ctrl.sleep_random(0.5, 1.0)
+            else:
+                self.input_ctrl.press_key("enter")
+                self.limiter.record_action("flow_a_comment")
+                ctx.comments_submitted += 1
 
-            self.input_ctrl.sleep_random(2.0, 4.0)
+            self.input_ctrl.sleep_random(2.0, 3.5)
             self._scroll_next()
             return True
 

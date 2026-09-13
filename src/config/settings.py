@@ -48,6 +48,7 @@ class InputConfig:
 class AppConfig:
     name: str = "FacebookAutoBot"
     log_level: str = "INFO"
+    dry_run: bool = False
     target_window: TargetWindowConfig = field(default_factory=TargetWindowConfig)
     flow_a: FlowAConfig = field(default_factory=FlowAConfig)
     flow_b: FlowBConfig = field(default_factory=FlowBConfig)
@@ -73,6 +74,7 @@ class AppConfig:
         return cls(
             name=app_data.get("name", "FacebookAutoBot"),
             log_level=app_data.get("log_level", "INFO"),
+            dry_run=bool(app_data.get("dry_run", False)),
             target_window=target_win,
             flow_a=flow_a,
             flow_b=flow_b,

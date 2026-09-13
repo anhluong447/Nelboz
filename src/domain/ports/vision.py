@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional
-from src.domain.entities.geometry import BoundingBox
+from src.domain.entities.geometry import BoundingBox, Point
 from src.domain.entities.comment import CommentUnit
 
 
@@ -20,6 +20,11 @@ class IAnchorDetector(ABC):
     @abstractmethod
     def detect_reply_buttons(self, thread_image: Any) -> List[BoundingBox]:
         """Detects Like-Reply buttons in comment thread."""
+        pass
+
+    @abstractmethod
+    def get_comment_button_center(self, anchor_box: BoundingBox) -> Point:
+        """Returns the click coordinate for the comment button relative to action bar."""
         pass
 
 

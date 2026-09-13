@@ -36,20 +36,32 @@ def main() -> None:
 
     config_path = Path(args.config)
     config = AppConfig.load_from_yaml(config_path)
+    if args.dry_run:
+        from dataclasses import replace
+        config = replace(config, dry_run=True)
 
-    logger.info("Initializing AutoBot Container (Flow: %s, DryRun: %s)...", args.flow.upper(), args.dry_run)
+    from src.infrastructure.input.fail_safe import default_fail_safe, EmergencyStopException
+
+    logger.info("Initializing AutoBot Container (Flow: %s, DryRun: %s)...", args.flow.upper(), config.dry_run)
+    logger.info("Emergency Fail-Safe is ACTIVE: Press [ESC] at any time to abort immediately.")
+
     container = Container(config=config)
 
-    if args.flow == "a":
-        logger.info("Starting Flow A (Comment Feed)...")
-        use_case = container.create_feed_comment_use_case()
-        result = use_case.execute_step()
-        logger.info("Flow A step execution finished. Success: %s", result)
-    else:
-        logger.info("Starting Flow B (Reply Thread)...")
-        use_case = container.create_thread_reply_use_case()
-        result = use_case.execute_step(post_context_text="Mẫu bài viết thảo luận...")
-        logger.info("Flow B step execution finished. Success: %s", result)
+    try:
+        with default_fail_safe:
+            if args.flow == "a":
+                logger.info("Starting Flow A (Comment Feed)...")
+                use_case = container.create_feed_comment_use_case()
+                result = use_case.execute_step()
+                logger.info("Flow A step execution finished. Success: %s", result)
+            else:
+                logger.info("Starting Flow B (Reply Thread)...")
+                use_case = container.create_thread_reply_use_case()
+                result = use_case.execute_step(post_context_text="Mẫu bài viết thảo luận...")
+                logger.info("Flow B step execution finished. Success: %s", result)
+    except EmergencyStopException:
+        logger.warning("[EMERGENCY STOP] Kill switch activated by user (ESC pressed or mouse in corner). Exiting gracefully.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
