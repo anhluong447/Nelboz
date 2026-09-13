@@ -113,7 +113,9 @@ class CloudLLMClient(ILLMClient):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.7,
-            "max_tokens": 400,
+            "max_tokens": 1500,
+            "response_format": {"type": "json_object"},
+            "reasoning": {"effort": "low"},
         }
 
         try:
@@ -149,7 +151,6 @@ class CloudLLMClient(ILLMClient):
             return self._parse_json_decision(raw_content.strip(), action_type)
 
         except requests.Timeout:
-
             logger.warning("OpenRouter API timed out after %.1f seconds.", self.timeout_sec)
             return ActionDecision(
                 should_act=False,
@@ -165,19 +166,15 @@ class CloudLLMClient(ILLMClient):
             )
 
     def _parse_json_decision(self, raw_content: str, target_action: ActionType) -> ActionDecision:
-        """Extracts and validates JSON decision from model response."""
+        """Extracts and validates JSON decision from model response with multi-layer fallback."""
         clean_text = raw_content.strip()
 
         # Remove markdown code block if present
-        if clean_text.startswith("```"):
+        if "```" in clean_text:
             clean_text = re.sub(r"^```(?:json)?\s*", "", clean_text, flags=re.MULTILINE)
             clean_text = re.sub(r"```\s*$", "", clean_text, flags=re.MULTILINE).strip()
 
-        # Match first JSON object if surrounded by extra text
-        match = re.search(r"(\{.*\})", clean_text, re.DOTALL)
-        if match:
-            clean_text = match.group(1)
-
+        # First attempt: direct json.loads
         try:
             parsed = json.loads(clean_text)
             should_act = bool(parsed.get("should_act", False))
@@ -185,7 +182,6 @@ class CloudLLMClient(ILLMClient):
             text = str(parsed.get("text", "")).strip()
 
             final_action = target_action if should_act else ActionType.SKIP
-
             return ActionDecision(
                 should_act=should_act,
                 text=text if should_act else "",
@@ -193,10 +189,51 @@ class CloudLLMClient(ILLMClient):
                 reason=reason,
                 confidence=0.95,
             )
-        except Exception as e:
-            logger.warning("Failed to parse LLM JSON decision: %s (Raw: %s)", e, raw_content[:200])
+        except json.JSONDecodeError:
+            pass
+
+        # Second attempt: find first JSON block
+        match = re.search(r"(\{[^{}]*\"should_act\"[^{}]*\})", clean_text, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group(1))
+                should_act = bool(parsed.get("should_act", False))
+                reason = str(parsed.get("reason", "No reason provided"))
+                text = str(parsed.get("text", "")).strip()
+
+                final_action = target_action if should_act else ActionType.SKIP
+                return ActionDecision(
+                    should_act=should_act,
+                    text=text if should_act else "",
+                    action_type=final_action,
+                    reason=reason,
+                    confidence=0.95,
+                )
+            except json.JSONDecodeError:
+                pass
+
+        # Third attempt: resilient regex extraction for truncated or slightly malformed JSON
+        should_act_match = re.search(r'"should_act"\s*:\s*(true|false)', clean_text, re.IGNORECASE)
+        if should_act_match:
+            should_act = should_act_match.group(1).lower() == "true"
+            reason_match = re.search(r'"reason"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', clean_text)
+            text_match = re.search(r'"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', clean_text)
+
+            reason = reason_match.group(1) if reason_match else "Extracted via regex fallback"
+            text = text_match.group(1) if text_match else ""
+
+            final_action = target_action if should_act else ActionType.SKIP
             return ActionDecision(
-                should_act=False,
-                reason="Malformed JSON response from LLM",
-                action_type=ActionType.SKIP,
+                should_act=should_act,
+                text=text if should_act else "",
+                action_type=final_action,
+                reason=reason,
+                confidence=0.90,
             )
+
+        logger.warning("Failed to parse LLM JSON decision: (Raw: %s)", raw_content[:200])
+        return ActionDecision(
+            should_act=False,
+            reason="Malformed JSON response from LLM",
+            action_type=ActionType.SKIP,
+        )
