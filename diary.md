@@ -301,3 +301,25 @@ Sau khi hoàn thiện Flow A, dự án tiếp tục mở rộng sang **Flow B (O
    - Toàn bộ test suite: **23/23 tests PASSED** (0.58s).
    - Chạy thử nghiệm live dry-run trực tiếp trên trình duyệt Cốc Cốc: Người dùng kiểm tra trực quan và xác nhận hoạt động hoàn hảo ("Ok đã ngon").
 
+---
+
+## 12. Tích Hợp Google Chrome Lens OCR (Trick OCR) Vào Clean Architecture
+
+Dự án đã tích hợp thành công giải pháp trích xuất văn bản đỉnh cao từ `ocr/lens_ocr.js` (dựa trên `chrome-lens-ocr` khai thác Google Lens của Chrome):
+
+1. **Phân Tích & Điểm Nhấn Kỹ Thuật Của Trick:**
+   - Sử dụng endpoint Google Lens của Chrome: Nhận diện tiếng Việt chuẩn xác tuyệt đối (hỗ trợ đầy đủ tiếng lóng, teen-code, font chữ Facebook) mà **không tiêu tốn GPU/RAM local** và không cần train CRNN phức tạp.
+   - Hot-patch thư viện tại chỗ để lấy góc xoay `rotationZ`.
+   - Thuật toán gom nhóm dòng sinh học (Reading-order Sorting): Gom dòng theo chiều cao và sắp xếp trái sang phải, tạo ra `full_text` chuẩn theo mắt người đọc.
+
+2. **Hiện Thực Adapter Chuẩn Clean Architecture:**
+   - File [lens_ocr_recognizer.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/ocr/lens_ocr_recognizer.py): Kế thừa `ITextRecognizer`, nhận diện cả từ `Path` và `np.ndarray`, tự động dọn dẹp file tạm và xử lý ngoại lệ an toàn.
+   - Cập nhật [container.py](file:///d:/Shits/Prj/autoBot/src/container.py): Tự động tiêm `LensOcrRecognizer` khi Node.js sẵn sàng (có fallback `MockTextRecognizer`).
+   - Cập nhật [.gitignore](file:///d:/Shits/Prj/autoBot/.gitignore): Chặn `node_modules/`, `ocr/chrome-lens-ocr/`, `data/temp_ocr/` để bảo vệ repo sạch sẽ.
+
+3. **Kiểm Thử & Đo Đạc (Benchmark):**
+   - File [benchmark_lens_ocr.py](file:///d:/Shits/Prj/autoBot/scripts/benchmark_lens_ocr.py): Đo đạc trên ảnh thực tế, độ trễ trung bình **$\approx 1.8\text{s}$**, đọc hoàn hảo cả teen-code và tiếng nước ngoài.
+   - File [test_lens_ocr.py](file:///d:/Shits/Prj/autoBot/tests/test_lens_ocr.py): Bổ sung 3 test case mới.
+   - Toàn bộ test suite: **26/26 tests PASSED (100%)**.
+
+

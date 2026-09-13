@@ -17,6 +17,7 @@ from src.infrastructure.vision.feed_card_segmenter import FeedCardSegmenter
 from src.infrastructure.vision.anchor_detector import AnchorDetector
 from src.infrastructure.vision.comment_grouper import CommentThreadGrouper
 from src.infrastructure.ocr.mock_recognizer import MockTextRecognizer
+from src.infrastructure.ocr.lens_ocr_recognizer import LensOcrRecognizer
 from src.infrastructure.nlp_filter.tfidf_logistic_filter import TfidfLogisticFilter
 from src.infrastructure.llm.mock_llm_client import MockLLMClient
 from src.infrastructure.input.pynput_controller import PynputHumanController
@@ -60,8 +61,17 @@ class Container:
         )
 
         # OCR & Filter
-        self.ocr_recognizer: ITextRecognizer = MockTextRecognizer()
+        if not self.use_mocks:
+            lens_ocr = LensOcrRecognizer()
+            if lens_ocr.is_available():
+                self.ocr_recognizer: ITextRecognizer = lens_ocr
+            else:
+                self.ocr_recognizer = MockTextRecognizer()
+        else:
+            self.ocr_recognizer = MockTextRecognizer()
+
         self.text_filter: ITextFilter = TfidfLogisticFilter()
+
 
         # LLM
         self.llm_client: ILLMClient = MockLLMClient()

@@ -1,0 +1,8 @@
+{
+  "name": "autobot-ocr",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "chrome-lens-ocr": "./chrome-lens-ocr"
+  }
+}

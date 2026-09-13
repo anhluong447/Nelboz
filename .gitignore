@@ -56,3 +56,10 @@ data/
 *.webp
 !src/infrastructure/vision/templates/*.png
 
+# Node & OCR dependencies
+node_modules/
+ocr/node_modules/
+ocr/chrome-lens-ocr/
+data/temp_ocr/
+
+
