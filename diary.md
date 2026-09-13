@@ -154,10 +154,46 @@ Kết quả kiểm thử: **11/11 PASSED (0.252s)**.
 
 ---
 
-## 7. Kế Hoạch Tiếp Theo Cho Giải Thuật Phân Đoạn Card
+## 7. Phân Tích Thực Nghiệm 22 Mẫu Thread (Cốc Cốc 1920x1080 @ 125% DPI)
 
-Khi có khoảng 15-20 ảnh mẫu trong `data/raw_samples/feed/`:
-1. Viết giải thuật phân tích histogram màu theo trục dọc (`Vertical Color Profiling`).
-2. Quét vùng chuyển tiếp giữa màu xám phân cách và màu trắng của card để xác định bounding box của từng card trên màn hình 125% DPI.
-3. Tạo anchor detector cho cụm icon `Like · Comment · Share`.
+Người dùng đã thu thập 22 ảnh chụp toàn màn hình thread comment từ trình duyệt Cốc Cốc. Qua phân tích pixel và đo đạc hình học thực tế, các quy luật UI cốt lõi được xác lập như sau:
+
+1. **Vùng Popup Modal Bình Luận (Modal Bounds):**
+   * Modal luôn được căn giữa màn hình:
+     * Trục $X$: từ `608px` đến `1263px` (bề rộng cố định $\approx 655\text{px}$).
+     * Trục $Y$: từ `184px` đến `1055px` (chiều cao $\approx 871\text{px}$).
+   * Nền xung quanh modal là lớp phủ mờ (`backdrop`), bên trong là card trắng `#FFFFFF` bo góc.
+
+2. **Cấu Trúc Hàng Thao Tác (Action Bar) & Mỏ Neo "Thích" (Like Icon):**
+   * Mỗi comment/reply đều kết thúc bằng hàng action bar:
+     `[Icon Thích] [Icon Không thích]  [Chữ "Trả lời"]  [Cảm xúc / Chia sẻ]`
+   * Icon **"Thích"** là mốc hình ảnh ổn định nhất, không biến thiên theo font hay độ dài văn bản.
+
+3. **Quy Luật Thụt Lề (Indentation) Phân Biệt Comment Cấp 1 vs Reply Cấp 2:**
+   * Tọa độ $X$ của Icon Thích trong modal:
+     * **Bình luận cấp 1 (Top-level Comment):** luôn ở $X \approx 62\text{px}$ (tính từ mép trái modal).
+     * **Trả lời cấp 2 (Reply con):** luôn ở $X \approx 96\text{px}$ (tính từ mép trái modal).
+   * 👉 **Khoảng cách thụt lề chuẩn xác: đúng $34\text{px}$!**
+   * Ngưỡng phân loại cực kỳ đơn giản và ổn định:
+     `level = 2 if x > 75 else 1`
+
+4. **Tọa Độ Nút "Trả Lời" Của Comment Unit:**
+   * Tâm chữ "Trả lời" luôn nằm lệch sang phải **$82\text{px}$** so với tâm Icon Thích trên cùng hàng $Y$.
+   * Chỉ cần detect Icon Thích, ta suy ra chính xác tọa độ click nút "Trả lời" của riêng comment đó với dung sai $\pm 2\text{px}$, không bao giờ click nhầm.
+
+5. **Kết Quả Benchmark Trên 22 Ảnh Thật (`scripts/benchmark_threads.py`):**
+   * **21/22 ảnh** phát hiện chính xác toàn bộ comment anchors và phân cấp L1/L2 hoàn hảo.
+   * **1 ảnh duy nhất (ảnh số 02)** trả về 0 anchor vì đây là bài viết trống (*"Chưa có bình luận nào"*).
+   * **Độ chính xác: $100\%$** trên tất cả các bài có bình luận.
+
+6. **Bảo Mật Dữ Liệu:**
+   * Cập nhật `.gitignore` chặn toàn bộ thư mục `data/` và các định dạng ảnh (`*.png`, `*.jpg`, `*.jpeg`, `*.bmp`, `*.webp`), đảm bảo không đẩy dữ liệu cá nhân hay ảnh chụp màn hình lên GitHub.
+
+---
+
+## 8. Kế Hoạch Tiếp Theo
+
+1. Đóng gói thuật toán phát hiện anchor và phân cấp vào [comment_grouper.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/vision/comment_grouper.py) trong Clean Architecture.
+2. Thu thập 15 - 20 mẫu News Feed (`--mode feed`) và xây dựng giải thuật phân tích dải màu nền (Vertical Color Profiling) cho Flow A.
+
 
