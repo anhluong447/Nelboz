@@ -113,9 +113,9 @@ class CloudLLMClient(ILLMClient):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.7,
-            "max_tokens": 1500,
+            "max_tokens": 800,
             "response_format": {"type": "json_object"},
-            "reasoning": {"effort": "low"},
+            "reasoning": {"effort": "none"},
         }
 
         try:

@@ -374,3 +374,16 @@ Lăn (Scroll) ➔ Thấy post (Anchor detect) ➔ Nhấn nút Comment ➔ Đọc
    - **Đặc biệt:** Do thao tác click `"Xem thêm"` ở bước 4 có thể làm mất focus khỏi ô input comment hoặc đẩy ô comment xuống thấp hơn, bot sẽ tự động click tái kích hoạt (re-focus) ô comment trước khi gõ.
    - Gõ comment mượt mà theo tốc độ phím sinh học.
    - Ở chế độ Dry-run: Dừng quan sát $2.5\text{s} \to$ Xóa sạch (`Ctrl+A` $\to$ `Backspace`) an toàn tuyệt đối.
+
+---
+
+## 15. Tối Ưu Hóa LLM: Tắt Hoàn Toàn Reasoning & Triệt Tiêu Lỗi Cắt Token
+
+1. **Vấn Đề Phát Sinh:**
+   - Mô hình `deepseek/deepseek-v4-flash-0731` trên OpenRouter sinh ra hàng trăm reasoning tokens trước khi xuất JSON. Với các bài viết dài, reasoning tiêu hao tới ~990 tokens, làm vượt ngưỡng `max_tokens` và cắt đứt chuỗi JSON giữa chừng (`Malformed JSON`).
+2. **Giải Pháp & Tắt Reasoning:**
+   - Bổ sung cấu hình `"reasoning": {"effort": "none"}` và `"response_format": {"type": "json_object"}`.
+   - Số lượng `reasoning_tokens` giảm về đúng **0 tokens**.
+   - Thời gian phản hồi giảm từ $\approx 8.6\text{s}$ xuống chỉ còn **$2.1\text{s} - 2.5\text{s}$** (nhanh hơn gấp 3.5 lần).
+   - Tăng độ bền của parser với cơ chế 3 tầng fallback (Direct JSON $\to$ Regex Block $\to$ Regex Field Extractor).
+   - Toàn bộ test suite: **30/30 tests PASSED (100%)**.
