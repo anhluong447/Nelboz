@@ -47,9 +47,15 @@ def get_unique_filename(output_dir: Path, prefix: str) -> Path:
 
 
 class SampleCapturer:
-    def __init__(self, mode: str = "feed", title_pattern: str = ".*Chrome.*"):
+    def __init__(
+        self,
+        mode: str = "feed",
+        title_pattern: str = ".*(Cốc Cốc|Coc Coc|Chrome|Facebook).*",
+        fullscreen: bool = False,
+    ):
         self.mode = mode
         self.title_pattern = title_pattern
+        self.fullscreen = fullscreen
         self.window_mgr = Win32WindowManager(dpi_aware=True)
         self.capture = MssScreenCapture()
         self.output_dir = PROJECT_ROOT / "data" / "raw_samples" / self.mode
@@ -57,15 +63,20 @@ class SampleCapturer:
         self.capture_count = 0
 
     def capture_once(self) -> bool:
-        target_win = self.window_mgr.find_target_window(self.title_pattern)
-        if not target_win:
-            print(f"[!] Khong tim thay cua so phu hop voi pattern: '{self.title_pattern}'")
-            return False
+        if self.fullscreen:
+            print("[*] Che do: Full Screen (Toan man hinh)")
+            img = self.capture.capture_fullscreen()
+        else:
+            target_win = self.window_mgr.find_target_window(self.title_pattern)
+            if not target_win:
+                print(f"[!] Khong tim thay cua so voi pattern: '{self.title_pattern}'")
+                print("[*] Tu dong chuyen sang chup Full Screen...")
+                img = self.capture.capture_fullscreen()
+            else:
+                rect = target_win.rect
+                print(f"[*] Muc tieu: '{target_win.title[:45]}...' | Rect: {rect.width}x{rect.height} tai ({rect.x}, {rect.y})")
+                img = self.capture.capture_window(target_win)
 
-        rect = target_win.rect
-        print(f"[*] Muc tieu: '{target_win.title[:45]}...' | Rect: {rect.width}x{rect.height} tai ({rect.x}, {rect.y})")
-
-        img = self.capture.capture_window(target_win)
         if img is None or img.size == 0:
             print("[!] Loi: Khong capture duoc hinh anh.")
             return False
@@ -74,15 +85,12 @@ class SampleCapturer:
         if cv2 is not None:
             cv2.imwrite(str(file_path), img)
         else:
-            # Fallback if cv2 not loaded
-            import numpy as np
             from PIL import Image
-            rgb = img[:, :, ::-1] # BGR to RGB
+            rgb = img[:, :, ::-1]  # BGR to RGB
             Image.fromarray(rgb).save(file_path)
 
         self.capture_count += 1
         print(f"[+] [{self.capture_count}] Da luu anh: {file_path.name} ({img.shape[1]}x{img.shape[0]} px)")
-        # Beep notification on Windows
         try:
             ctypes.windll.kernel32.Beep(1000, 150)
         except Exception:
@@ -90,19 +98,20 @@ class SampleCapturer:
         return True
 
     def run_hotkey_listener(self) -> None:
-        """Listens for F8 hotkey in background so you can browse Chrome and capture instantly without alt-tabbing."""
+        """Listens for F8 hotkey in background so you can browse Cốc Cốc and capture instantly without alt-tabbing."""
         if not keyboard:
             print("[!] Thư viện pynput chưa sẵn sàng, chuyển sang chế độ gõ phím Enter tại terminal.")
             self.run_interactive_terminal()
             return
 
+        mode_desc = "FULL SCREEN" if self.fullscreen else "AUTO (Cốc Cốc / Chrome / Fallback Fullscreen)"
         print("\n" + "=" * 65)
-        print(f"  AUTO SAMPLE CAPTURE TOOL — Mode: [{self.mode.upper()}]")
+        print(f"  AUTO SAMPLE CAPTURE TOOL — Mode: [{self.mode.upper()}] ({mode_desc})")
         print("=" * 65)
         print(f"[*] Thu muc luu: data/raw_samples/{self.mode}/")
         print("[*] Huong dan su dung:")
-        print("    -> Mo Chrome lướt Facebook bình thường (không cần chuyển qua lại terminal).")
-        print("    -> Nhan phim [F8] bat cu luc nao de chup anh viewport Chrome.")
+        print("    -> Mo Coc Coc / Chrome luot Facebook binh thuong.")
+        print("    -> Nhan phim [F8] bat cu luc nao de chup.")
         print("    -> Nhan [ESC] hoac [Ctrl + C] tai day de dung script.")
         print("=" * 65 + "\n")
 
@@ -120,16 +129,17 @@ class SampleCapturer:
             listener.join()
 
     def run_interactive_terminal(self) -> None:
+        mode_desc = "FULL SCREEN" if self.fullscreen else "AUTO"
         print("\n" + "=" * 65)
-        print(f"  TERMINAL CAPTURE MODE — Mode: [{self.mode.upper()}]")
+        print(f"  TERMINAL CAPTURE MODE — Mode: [{self.mode.upper()}] ({mode_desc})")
         print("=" * 65)
-        print("[*] Nhan [Enter] de chup 1 frame viewport cua Chrome.")
+        print("[*] Nhan [Enter] de chup 1 frame.")
         print("[*] Go 'q' roi Enter de thoat.")
         print("=" * 65 + "\n")
 
         while True:
             cmd = input(">> Nhan Enter de capture (q de thoat): ").strip()
-            if cmd.lower() == 'q':
+            if cmd.lower() == "q":
                 break
             self.capture_once()
 
@@ -143,9 +153,14 @@ def main():
         help="Capture mode: 'feed' for post cards, 'threads' for comment threads",
     )
     parser.add_argument(
+        "--fullscreen",
+        action="store_true",
+        help="Capture full screen (1920x1080) instead of searching for browser window",
+    )
+    parser.add_argument(
         "--title",
-        default=".*Chrome.*",
-        help="Window title regex pattern (default: '.*Chrome.*')",
+        default=".*(Cốc Cốc|Coc Coc|Chrome|Facebook).*",
+        help="Window title regex pattern (default: matches Cốc Cốc, Chrome, Facebook)",
     )
     parser.add_argument(
         "--terminal",
@@ -154,11 +169,16 @@ def main():
     )
     args = parser.parse_args()
 
-    capturer = SampleCapturer(mode=args.mode, title_pattern=args.title)
+    capturer = SampleCapturer(
+        mode=args.mode,
+        title_pattern=args.title,
+        fullscreen=args.fullscreen,
+    )
     if args.terminal or not keyboard:
         capturer.run_interactive_terminal()
     else:
         capturer.run_hotkey_listener()
+
 
 
 if __name__ == "__main__":

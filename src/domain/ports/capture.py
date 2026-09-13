@@ -14,3 +14,9 @@ class IScreenCapture(ABC):
     def capture_window(self, window: WindowInfo) -> Any:
         """Captures the visible viewport area of target window."""
         pass
+
+    @abstractmethod
+    def capture_fullscreen(self) -> Any:
+        """Captures the primary monitor full screen."""
+        pass
+

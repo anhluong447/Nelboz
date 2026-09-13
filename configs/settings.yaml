@@ -3,9 +3,10 @@ app:
   log_level: "INFO"
 
 target_window:
-  title_pattern: ".*Chrome.*"
+  title_pattern: ".*(Cốc Cốc|Coc Coc|Chrome|Facebook).*"
   tab_title_pattern: ".*Facebook.*"
   dpi_aware: true
+
 
 flow_a:
   max_comments_per_hour: 5

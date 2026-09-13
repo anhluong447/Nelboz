@@ -43,6 +43,10 @@ class DummyScreenCapture(IScreenCapture):
     def capture_window(self, window: WindowInfo) -> Any:
         return np.zeros((window.rect.height, window.rect.width, 3), dtype=np.uint8)
 
+    def capture_fullscreen(self) -> Any:
+        return np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+
 
 class DummyCardSegmenter(ICardSegmenter):
     def segment_cards(self, feed_image: Any) -> List[BoundingBox]:
