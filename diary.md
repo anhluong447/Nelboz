@@ -137,17 +137,27 @@ Kết quả kiểm thử: **11/11 PASSED (0.252s)**.
 
 ---
 
-## 6. Kế Hoạch Cho Các Bước Tiếp Theo (Phase 1)
+## 6. Khởi Động Phase 1: Môi Trường & Công Cụ Thu Thập Mẫu (Capture Tool)
 
-Khi tiếp tục phát triển, các bước ưu tiên theo tài liệu kỹ thuật là:
-1. **Module 2.1 (Capture & Window Validation):**
-   * Mở Chrome thật trên trang Facebook Feed.
-   * Chạy script test capture để lưu thử ảnh viewport, kiểm tra xem có bị lệch viền cửa sổ hay ảnh hưởng bởi DPI scaling không.
-2. **Module 3 bước 2 (Background Segmentation - Flow A):**
-   * Lấy ảnh feed thật (cả chế độ sáng/tối).
-   * Viết giải thuật phân tích dải màu nền: quét theo cột dọc ở giữa feed, tính sự thay đổi giá trị màu giữa nền feed (xám) và nền card (trắng/xám đậm) để xác định chính xác ranh giới trên/dưới của từng card.
-3. **Module 3 bước 3 (Anchor Detection):**
-   * Cắt một tập mẫu hàng nút `Like · Comment · Share`.
-   * Thử nghiệm template matching đa tỉ lệ hoặc train một mạng CNN rất nhẹ (3-4 conv layers) để nhận diện anchor bar độc lập với nội dung ảnh bên trong card.
-4. **Module 4 bước 4 (Comment Unit Grouping - Flow B):**
-   * Phân tích khoảng cách trục Y và thụt lề trục X để gom các cặp text + nút reply.
+- **Môi trường:**
+  * Đã tạo môi trường ảo `.venv` (Python 3.12).
+  * Đã cài đặt đầy đủ dependencies vào `.venv`: `numpy 2.5.3`, `opencv-python 5.0.0.93`, `mss 10.2.0`, `pynput 1.8.2`, `pywin32 312`, `pydantic 2.13.5`, `pyyaml 6.0.3`, `pytest 9.1.1`.
+  * Đã thêm `pytest.ini` cấu hình `pythonpath = .`. Toàn bộ 11 tests chạy qua `pytest` đều PASSED (0.50s).
+- **Đặc tả môi trường từ người dùng:**
+  * Giao diện: Facebook **Light mode** (nền feed `#F0F2F5`, nền card `#FFFFFF`).
+  * Màn hình: Độ phân giải **1920x1080**, Windows Display Scale **125%**.
+  * Bổ sung cơ chế `SetProcessDpiAwareness(2)` (Per-monitor DPI aware) để lấy chính xác tọa độ pixel thật, không bị Windows scale làm mờ hoặc lệch viewport.
+- **Công cụ tự động thu thập ảnh mẫu (`scripts/capture_samples.py`):**
+  * Tự động phát hiện cửa sổ Chrome đang mở Facebook.
+  * Hỗ trợ bắt phím tắt toàn cục **`[F8]`**: Người dùng chỉ cần lướt Facebook trên Chrome, cuộn đến đâu bấm `F8` đến đó là script tự động crop đúng viewport Chrome và lưu vào `data/raw_samples/feed/` hoặc `data/raw_samples/threads/`.
+  * Có âm thanh thông báo Beep nhẹ khi chụp thành công, không cần Alt-Tab qua lại terminal.
+
+---
+
+## 7. Kế Hoạch Tiếp Theo Cho Giải Thuật Phân Đoạn Card
+
+Khi có khoảng 15-20 ảnh mẫu trong `data/raw_samples/feed/`:
+1. Viết giải thuật phân tích histogram màu theo trục dọc (`Vertical Color Profiling`).
+2. Quét vùng chuyển tiếp giữa màu xám phân cách và màu trắng của card để xác định bounding box của từng card trên màn hình 125% DPI.
+3. Tạo anchor detector cho cụm icon `Like · Comment · Share`.
+

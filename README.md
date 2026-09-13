@@ -1,4 +1,4 @@
-# Nelboz — Facebook Automation Bot
+# Nelboz
 
 Nelboz is a personal engineering and research automation project focused on Computer Vision, lightweight Machine Learning, and OS-level interaction.
 
