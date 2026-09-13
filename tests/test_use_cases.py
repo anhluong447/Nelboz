@@ -60,6 +60,9 @@ class DummyAnchorDetector(IAnchorDetector):
     def detect_reply_buttons(self, thread_image: Any) -> List[BoundingBox]:
         return [BoundingBox(50, 60, 40, 20)]
 
+    def get_comment_button_center(self, anchor_box: BoundingBox) -> Point:
+        return Point(anchor_box.x + 41, anchor_box.y + 16)
+
 
 class DummyOCR(ITextRecognizer):
     def recognize_text(self, image_crop: Any) -> str:
@@ -87,6 +90,8 @@ class DummyInput(IInputController):
     def __init__(self):
         self.clicked_points: List[Point] = []
         self.typed_texts: List[str] = []
+        self.pressed_keys: List[str] = []
+        self.cleared_count: int = 0
 
     def move_to(self, target: Point) -> None:
         pass
@@ -99,10 +104,13 @@ class DummyInput(IInputController):
         self.typed_texts.append(text)
 
     def press_key(self, key_name: str) -> None:
-        pass
+        self.pressed_keys.append(key_name)
 
     def scroll(self, clicks: int) -> None:
         pass
+
+    def clear_input(self) -> None:
+        self.cleared_count += 1
 
     def sleep_random(self, min_sec: float, max_sec: float) -> None:
         pass
@@ -160,7 +168,40 @@ class TestUseCases(unittest.TestCase):
         self.assertTrue(acted)
         self.assertEqual(ctx.comments_submitted, 1)
         self.assertIn("Bài viết rất hữu ích!", input_ctrl.typed_texts)
+        self.assertIn("enter", input_ctrl.pressed_keys)
         self.assertIn("flow_a_comment", limiter.records)
+
+    def test_feed_comment_use_case_dry_run(self):
+        config = AppConfig(dry_run=True)
+        input_ctrl = DummyInput()
+        limiter = DummyLimiter()
+
+        use_case = FeedCommentUseCase(
+            config=config,
+            window_mgr=DummyWindowManager(),
+            capture=DummyScreenCapture(),
+            card_segmenter=DummyCardSegmenter(),
+            anchor_detector=DummyAnchorDetector(),
+            ocr=DummyOCR(),
+            text_filter=DummyFilter(),
+            llm=DummyLLM(),
+            input_ctrl=input_ctrl,
+            limiter=limiter,
+        )
+
+        ctx = FlowAExecutionContext()
+        acted = use_case.execute_step(ctx)
+
+        self.assertTrue(acted)
+        # In dry run, comments are not counted as submitted to FB
+        self.assertEqual(ctx.comments_submitted, 0)
+        self.assertIn("Bài viết rất hữu ích!", input_ctrl.typed_texts)
+        # In dry run, Enter is NEVER pressed!
+        self.assertNotIn("enter", input_ctrl.pressed_keys)
+        # Text is cleared with clear_input()
+        self.assertEqual(input_ctrl.cleared_count, 1)
+        # Limiter is not consumed
+        self.assertNotIn("flow_a_comment", limiter.records)
 
     def test_thread_reply_use_case_flow(self):
         config = AppConfig()
