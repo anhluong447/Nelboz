@@ -46,3 +46,12 @@ htmlcov/
 
 # Sensitive / Local configs
 .env
+
+# Data & image samples
+data/
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.webp
+
