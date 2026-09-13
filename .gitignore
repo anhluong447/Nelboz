@@ -54,4 +54,5 @@ data/
 *.jpeg
 *.bmp
 *.webp
+!src/infrastructure/vision/templates/*.png
 
