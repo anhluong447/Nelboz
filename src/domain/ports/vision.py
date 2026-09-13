@@ -23,7 +23,7 @@ class IAnchorDetector(ABC):
         pass
 
     @abstractmethod
-    def get_comment_button_center(self, anchor_box: BoundingBox) -> Point:
+    def get_comment_button_center(self, anchor_box: BoundingBox, feed_image: Optional[Any] = None) -> Point:
         """Returns the click coordinate for the comment button relative to action bar."""
         pass
 

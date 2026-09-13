@@ -27,15 +27,19 @@ class AnchorDetector(IAnchorDetector):
         self.thread_like_threshold = thread_like_threshold
 
         self._feed_like_tpl: Optional[np.ndarray] = None
+        self._feed_comment_tpl: Optional[np.ndarray] = None
         self._thread_like_tpl: Optional[np.ndarray] = None
         self._load_templates()
 
     def _load_templates(self) -> None:
         feed_path = self.templates_dir / "feed_like.png"
+        comment_path = self.templates_dir / "feed_comment.png"
         thread_path = self.templates_dir / "thread_like.png"
 
         if feed_path.exists():
             self._feed_like_tpl = cv2.imread(str(feed_path), cv2.IMREAD_GRAYSCALE)
+        if comment_path.exists():
+            self._feed_comment_tpl = cv2.imread(str(comment_path), cv2.IMREAD_GRAYSCALE)
         if thread_path.exists():
             self._thread_like_tpl = cv2.imread(str(thread_path), cv2.IMREAD_GRAYSCALE)
 
@@ -147,12 +151,38 @@ class AnchorDetector(IAnchorDetector):
         anchors.sort(key=lambda a: a.y)
         return anchors
 
-    def get_comment_button_center(self, anchor_box: BoundingBox) -> Point:
-        """Returns the click coordinate for the Comment button relative to the action bar.
+    def get_comment_button_center(self, anchor_box: BoundingBox, feed_image: Optional[Any] = None) -> Point:
+        """Returns the click coordinate for the Comment button.
 
-        In desktop feed, the comment bubble button is located +41px to the right of the Like icon.
+        If feed_image is provided, performs precise template matching with feed_comment.png
+        along the action bar to locate the exact center of the speech bubble icon,
+        completely immune to like count width variation (e.g. 0, 1, 10, or 1000+ likes).
         """
-        return Point(x=anchor_box.x + 41, y=anchor_box.y + 16)
+        if feed_image is not None and self._feed_comment_tpl is not None and isinstance(feed_image, np.ndarray):
+            h, w = feed_image.shape[:2]
+            cth, ctw = self._feed_comment_tpl.shape[:2]
+
+            y1 = max(0, anchor_box.y - 6)
+            y2 = min(h, anchor_box.y + 36)
+            x1 = max(0, anchor_box.x + 35)
+            x2 = min(w, anchor_box.x + 180)
+
+            if y2 - y1 >= cth and x2 - x1 >= ctw:
+                if len(feed_image.shape) == 3:
+                    gray_slice = cv2.cvtColor(feed_image[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+                else:
+                    gray_slice = feed_image[y1:y2, x1:x2]
+
+                res = cv2.matchTemplate(gray_slice, self._feed_comment_tpl, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, max_loc = cv2.minMaxLoc(res)
+
+                if max_val >= 0.65:
+                    click_x = x1 + max_loc[0] + ctw // 2
+                    click_y = y1 + max_loc[1] + cth // 2
+                    return Point(x=click_x, y=click_y)
+
+        # Fallback if image not supplied or match fails: safe offset past like count (+65px)
+        return Point(x=anchor_box.x + 65, y=anchor_box.y + 16)
 
     def detect_reply_buttons(self, thread_image: Any) -> List[BoundingBox]:
         """Detects Like-Reply buttons in comment thread modal.

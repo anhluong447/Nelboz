@@ -60,7 +60,7 @@ class DummyAnchorDetector(IAnchorDetector):
     def detect_reply_buttons(self, thread_image: Any) -> List[BoundingBox]:
         return [BoundingBox(50, 60, 40, 20)]
 
-    def get_comment_button_center(self, anchor_box: BoundingBox) -> Point:
+    def get_comment_button_center(self, anchor_box: BoundingBox, feed_image: Optional[Any] = None) -> Point:
         return Point(anchor_box.x + 41, anchor_box.y + 16)
 
 

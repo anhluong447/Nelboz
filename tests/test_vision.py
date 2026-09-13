@@ -55,9 +55,9 @@ def test_anchor_detector_empty_or_none():
 def test_anchor_detector_comment_click_geometry():
     detector = AnchorDetector()
     anchor = BoundingBox(x=627, y=500, width=637, height=36)
+    # Fallback when no image is provided
     click_pt = detector.get_comment_button_center(anchor)
-
-    assert click_pt.x == 627 + 41
+    assert click_pt.x == 627 + 65
     assert click_pt.y == 500 + 16
 
 

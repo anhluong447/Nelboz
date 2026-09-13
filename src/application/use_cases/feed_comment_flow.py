@@ -132,8 +132,11 @@ class FeedCommentUseCase:
                 ctx.skipped_count += 1
                 continue
 
-            # 10. Compute comment box coordinate using AnchorDetector (+41px from Like icon)
-            comment_click_pt = self.anchor_detector.get_comment_button_center(anchor_box.offset(abs_card_box.x, abs_card_box.y))
+            # 10. Compute comment box coordinate using AnchorDetector (direct template match on speech bubble)
+            comment_click_pt = self.anchor_detector.get_comment_button_center(
+                anchor_box.offset(abs_card_box.x, abs_card_box.y),
+                viewport_img,
+            )
 
             # 11. Human-like simulation
             logger.info("Target comment button at (%d, %d)", comment_click_pt.x, comment_click_pt.y)

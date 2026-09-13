@@ -110,7 +110,7 @@ def run_dryrun():
                 print(" -> Saved last capture to 'data/dryrun_debug.png' for inspection.")
                 return
 
-            comment_click_pt = detector.get_comment_button_center(target_anchor)
+            comment_click_pt = detector.get_comment_button_center(target_anchor, feed_img)
 
             # Convert to absolute screen coordinates
             screen_click_x = target_win.rect.x + comment_click_pt.x
@@ -119,7 +119,7 @@ def run_dryrun():
 
             print(f"\n[Step 3] Target confirmed:")
             print(f" -> Like Anchor at ({target_anchor.x}, {target_anchor.y})")
-            print(f" -> Comment Button at screen coordinate: Point({target_pt.x}, {target_pt.y})")
+            print(f" -> Comment Button (speech bubble) located at: Point({target_pt.x}, {target_pt.y}) [offset +{comment_click_pt.x - target_anchor.x}px from Like]")
 
             print("\n[Step 4] Moving mouse via Cubic Bézier curve...")
             input_ctrl.move_to(target_pt)
