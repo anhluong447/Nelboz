@@ -1,11 +1,24 @@
+import ctypes
 import sys
 import time
 from pathlib import Path
 
+# Ensure Per-Monitor DPI Awareness is set immediately before any GUI / coordinate queries
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import cv2
+import numpy as np
 from src.config.settings import AppConfig
+from src.domain.entities.geometry import Point
 from src.infrastructure.window.win32_window_manager import Win32WindowManager
 from src.infrastructure.capture.mss_screen_capture import MssScreenCapture
 from src.infrastructure.vision.feed_card_segmenter import FeedCardSegmenter
@@ -36,36 +49,67 @@ def run_dryrun():
         return
 
     print(f"Found target window: '{target_win.title}' (Rect: {target_win.rect.to_tuple()})")
-    print("Focusing window in 3 seconds... Switch your eyes to Cốc Cốc!")
-    for i in range(3, 0, -1):
+    print("Focusing Cốc Cốc in 2 seconds...")
+    for i in range(2, 0, -1):
         print(f"  {i}...")
         time.sleep(1)
 
     window_mgr.focus_window(target_win.hwnd)
     time.sleep(0.8)
 
+    # Move mouse inside Cốc Cốc feed area so wheel scrolls the browser, not the terminal
+    feed_center = Point(target_win.rect.x + 900, target_win.rect.y + 500)
+    input_ctrl.move_to(feed_center)
+    input_ctrl.sleep_random(0.2, 0.4)
+
+    max_scroll_attempts = 10
+    target_anchor = None
+    feed_img = None
+
     with default_fail_safe:
         try:
-            print("\n[Step 1] Capturing feed screenshot...")
-            feed_img = capture.capture_window(target_win)
-            if feed_img is None:
-                print("[ERROR] Failed to capture feed window image.")
+            for attempt in range(1, max_scroll_attempts + 1):
+                print(f"\n--- [Scan Attempt {attempt}/{max_scroll_attempts}] ---")
+                print("Capturing feed screenshot...")
+                feed_img = capture.capture_window(target_win)
+                if feed_img is None:
+                    print("[ERROR] Failed to capture feed window image.")
+                    return
+
+                # Save debug image for inspection
+                cv2.imwrite("data/dryrun_debug.png", feed_img)
+
+                # Segment cards & detect action bars
+                cards = segmenter.segment_cards(feed_img)
+                anchors = detector.detect_feed_anchors(feed_img)
+
+                # Inspect best raw template match score for diagnostics
+                gray = cv2.cvtColor(feed_img, cv2.COLOR_BGR2GRAY)
+                roi = gray[160:min(1080, gray.shape[0]), 590:min(680, gray.shape[1])]
+                if roi.shape[0] >= 27 and roi.shape[1] >= 28 and detector._feed_like_tpl is not None:
+                    res = cv2.matchTemplate(roi, detector._feed_like_tpl, cv2.TM_CCOEFF_NORMED)
+                    _, max_score, _, max_loc = cv2.minMaxLoc(res)
+                    print(f" -> Cards found: {len(cards)} | Action bars found: {len(anchors)}")
+                    print(f" -> Best Like icon match: score={max_score:.3f} (Threshold: {detector.feed_like_threshold}) at ({max_loc[0]+590}, {max_loc[1]+160})")
+                else:
+                    print(f" -> Cards found: {len(cards)} | Action bars found: {len(anchors)}")
+
+                if len(anchors) > 0:
+                    target_anchor = anchors[0]
+                    print(f" [+] Action bar successfully acquired at X={target_anchor.x}, Y={target_anchor.y}!")
+                    break
+
+                print(" [!] No action bar in current viewport (likely tall media).")
+                print(" -> Scrolling down 2 steps smoothly (~180px)...")
+                input_ctrl.move_to(feed_center)
+                input_ctrl.scroll(-2)
+                input_ctrl.sleep_random(1.2, 1.8)
+
+            if not target_anchor:
+                print(f"\n[!] Could not locate an action bar after {max_scroll_attempts} scroll attempts.")
+                print(" -> Saved last capture to 'data/dryrun_debug.png' for inspection.")
                 return
 
-            print("[Step 2] Segmenting feed cards & detecting action bars...")
-            cards = segmenter.segment_cards(feed_img)
-            anchors = detector.detect_feed_anchors(feed_img)
-
-            print(f" -> Found {len(cards)} post cards and {len(anchors)} action bars in viewport.")
-
-            if not anchors:
-                print(" -> No action bars visible in current viewport. Performing smooth scroll...")
-                input_ctrl.scroll(-4)
-                print(" -> Done scroll. Re-run to inspect next viewport.")
-                return
-
-            # Pick the topmost fully visible action bar
-            target_anchor = anchors[0]
             comment_click_pt = detector.get_comment_button_center(target_anchor)
 
             # Convert to absolute screen coordinates
@@ -73,7 +117,7 @@ def run_dryrun():
             screen_click_y = target_win.rect.y + comment_click_pt.y
             target_pt = Point(x=screen_click_x, y=screen_click_y)
 
-            print(f"\n[Step 3] Target acquired:")
+            print(f"\n[Step 3] Target confirmed:")
             print(f" -> Like Anchor at ({target_anchor.x}, {target_anchor.y})")
             print(f" -> Comment Button at screen coordinate: Point({target_pt.x}, {target_pt.y})")
 
@@ -98,6 +142,7 @@ def run_dryrun():
             print(" -> Cleaned up successfully! No comment was posted.")
 
             print("\n[Step 9] Smooth scrolling down to next post...")
+            input_ctrl.move_to(feed_center)
             input_ctrl.scroll(-4)
             input_ctrl.sleep_random(1.0, 1.5)
 
@@ -111,5 +156,4 @@ def run_dryrun():
 
 
 if __name__ == "__main__":
-    from src.domain.entities.geometry import Point
     run_dryrun()

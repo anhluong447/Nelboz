@@ -65,10 +65,10 @@ class AnchorDetector(IAnchorDetector):
         else:
             gray = card_image
 
-        # Search region: if full screen (w > 1000), constrain horizontally to feed like col (615..665)
-        # If card crop (w ~ 637), search along left margin (0..60)
+        # Search region: if full screen (w > 1000), constrain horizontally to feed like col (590..680)
+        # to robustly handle layout shifts between Chrome and Cốc Cốc
         if w > 1000:
-            x_min, x_max = 615, min(w, 665)
+            x_min, x_max = 590, min(w, 680)
         else:
             x_min, x_max = 0, min(w, 60)
 
@@ -119,7 +119,7 @@ class AnchorDetector(IAnchorDetector):
 
         y_top = max(0, y_min)
         y_bottom = min(h, y_max)
-        if y_bottom - y_top < th or w < 665:
+        if y_bottom - y_top < th or w < 680:
             return []
 
         if len(feed_image.shape) == 3:
@@ -127,13 +127,14 @@ class AnchorDetector(IAnchorDetector):
         else:
             gray = feed_image
 
-        roi = gray[y_top:y_bottom, 615:665]
+        # Search X from 590 to 680 to accommodate Cốc Cốc sidebar variation
+        roi = gray[y_top:y_bottom, 590:680]
         res = cv2.matchTemplate(roi, self._feed_like_tpl, cv2.TM_CCOEFF_NORMED)
         loc = np.where(res >= self.feed_like_threshold)
 
         anchors: List[BoundingBox] = []
         for pt in zip(*loc[::-1]):
-            abs_x = pt[0] + 615
+            abs_x = pt[0] + 590
             abs_y = pt[1] + y_top
             if not any(abs(abs_y - a.y) < 20 for a in anchors):
                 anchors.append(BoundingBox(
