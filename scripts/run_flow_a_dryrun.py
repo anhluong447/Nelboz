@@ -27,6 +27,7 @@ import numpy as np
 from src.config.settings import AppConfig
 from src.domain.entities.geometry import Point
 from src.domain.entities.decision import ActionType
+from src.domain.entities.context_memory import PostContextMemory
 from src.infrastructure.window.win32_window_manager import Win32WindowManager
 from src.infrastructure.capture.mss_screen_capture import MssScreenCapture
 from src.infrastructure.vision.feed_card_segmenter import FeedCardSegmenter
@@ -133,25 +134,35 @@ def run_dryrun():
             input_ctrl.sleep_random(1.0, 1.4)
 
             # -------------------------------------------------------------
-            # BƯỚC 4: ĐỌC BÀI CẢ TEXT VÀ ẢNH BẰNG OCR (BUNG 'XEM THÊM' NẾU CÓ)
+            # BƯỚC 4: QUÉT ĐA TẦNG (MULTI-PASS SCROLL) & TÍCH LŨY POST CONTEXT MEMORY
             # -------------------------------------------------------------
-            print("\n[Bước 4] Đọc bài viết (Text + Ảnh) bằng Google Lens OCR...")
-            # Re-capture viewport after clicking comment
-            feed_img = capture.capture_window(target_win)
+            print("\n[Bước 4] Đọc bài viết đa tầng bằng Google Lens OCR kết hợp PostContextMemory...")
+            context_memory = PostContextMemory()
 
-            # Post content crop: dynamic horizontal bounds from action bar
+            # Tọa độ cuộn feed an toàn (giữa khung bài viết)
             post_x1 = max(0, target_anchor.x - 10)
             post_x2 = min(feed_img.shape[1], target_anchor.x + target_anchor.width + 10)
-            post_top_y = max(185, target_anchor.y - 520)
-            post_bottom_y = target_anchor.y
+            scroll_center = Point(
+                x=int(target_win.rect.x + (post_x1 + post_x2) / 2),
+                y=int(target_win.rect.y + 450),
+            )
 
-            post_crop = feed_img[post_top_y:post_bottom_y, post_x1:post_x2]
-            cv2.imwrite("data/flow_a_post_crop.png", post_crop)
+            # --- Đợt 4.1: Cuộn LÊN ĐỈNH BÀI VIẾT (+3 nấc) để lấy tiêu đề & nội dung đầu ---
+            print(" -> [Đợt 1] Cuộn lên đỉnh bài viết để tránh trôi khung nhìn...")
+            input_ctrl.move_to(scroll_center)
+            input_ctrl.scroll(3)
+            input_ctrl.sleep_random(0.7, 1.0)
 
-            ocr_data = ocr.recognize_with_segments(post_crop)
-            segments = ocr_data.get("segments", [])
+            feed_img = capture.capture_window(target_win)
+            # Crop vùng đỉnh bài viết (Y: 185 -> 720)
+            crop_top = feed_img[185:720, post_x1:post_x2]
+            cv2.imwrite("data/flow_a_crop_top.png", crop_top)
+            ocr_top = ocr.recognize_with_segments(crop_top)
+            added_top = context_memory.add_ocr_result(ocr_top.get("full_text", ""))
+            print(f" [+] Đợt 1 (Đỉnh bài): Thu thập được {added_top} dòng văn bản.")
 
-            # Check for 'Xem thêm' in segments
+            # Kiểm tra nút 'Xem thêm' ở đợt 1
+            segments = ocr_top.get("segments", [])
             xem_them_seg = None
             for seg in segments:
                 text_clean = seg.get("text", "").strip().lower()
@@ -159,15 +170,13 @@ def run_dryrun():
                     xem_them_seg = seg
                     break
 
-            expanded_post = False
             if xem_them_seg and xem_them_seg.get("box"):
                 box = xem_them_seg["box"]
                 cx = box["x"] + box["width"] / 2.0
                 cy = box["y"] + box["height"] / 2.0
-
                 screen_xem_them = Point(
-                    x=int(target_win.rect.x + post_x1 + cx * post_crop.shape[1]),
-                    y=int(target_win.rect.y + post_top_y + cy * post_crop.shape[0]),
+                    x=int(target_win.rect.x + post_x1 + cx * crop_top.shape[1]),
+                    y=int(target_win.rect.y + 185 + cy * crop_top.shape[0]),
                 )
                 print(f" [+] Phát hiện nút 'Xem thêm' tại Point({screen_xem_them.x}, {screen_xem_them.y})!")
                 print(" -> Di chuột Bézier và click 'Xem thêm' để mở trọn vẹn thông tin bài viết...")
@@ -175,31 +184,50 @@ def run_dryrun():
                 input_ctrl.sleep_random(0.2, 0.4)
                 input_ctrl.click(screen_xem_them)
                 input_ctrl.sleep_random(0.8, 1.2)
-                expanded_post = True
 
-                # Re-capture expanded post & re-detect anchor in case action bar shifted down
-                print(" -> Chụp lại bài viết sau khi bung 'Xem thêm'...")
+                # Chụp lại sau khi bung
+                feed_img = capture.capture_window(target_win)
+                crop_top = feed_img[185:720, post_x1:post_x2]
+                cv2.imwrite("data/flow_a_crop_top.png", crop_top)
+                ocr_top = ocr.recognize_with_segments(crop_top)
+                context_memory.add_ocr_result(ocr_top.get("full_text", ""))
+
+            # --- Đợt 4.2: Cuộn XUỐNG (-3 nấc) để quét tiếp thân bài & ảnh ---
+            print(" -> [Đợt 2] Cuộn xuống quét tiếp thân bài viết & hình ảnh...")
+            input_ctrl.move_to(scroll_center)
+            input_ctrl.scroll(-3)
+            input_ctrl.sleep_random(0.7, 1.0)
+
+            feed_img = capture.capture_window(target_win)
+            # Crop vùng thân/ảnh bài viết (Y: 220 -> 850)
+            crop_mid = feed_img[220:850, post_x1:post_x2]
+            cv2.imwrite("data/flow_a_crop_mid.png", crop_mid)
+            ocr_mid = ocr.recognize_with_segments(crop_mid)
+            added_mid = context_memory.add_ocr_result(ocr_mid.get("full_text", ""))
+            print(f" [+] Đợt 2 (Thân/Ảnh bài): Thu thập thêm {added_mid} dòng mới.")
+
+            # --- Đợt 4.3: Định vị lại Action Bar & Ô Comment Input ---
+            print(" -> [Đợt 3] Định vị lại Action Bar và ô comment...")
+            new_anchors = detector.detect_feed_anchors(feed_img)
+            valid_new = [a for a in new_anchors if a.y >= 200]
+            if not valid_new:
+                # Nếu action bar còn nằm hơi thấp, cuộn nhẹ thêm 1 nấc
+                input_ctrl.scroll(-1)
+                input_ctrl.sleep_random(0.5, 0.7)
                 feed_img = capture.capture_window(target_win)
                 new_anchors = detector.detect_feed_anchors(feed_img)
-                # Find anchor closest to original target_anchor
-                valid_new = [a for a in new_anchors if a.y >= target_anchor.y - 20]
-                if valid_new:
-                    target_anchor = valid_new[0]
-                    post_bottom_y = target_anchor.y
+                valid_new = [a for a in new_anchors if a.y >= 200]
 
-                post_crop = feed_img[post_top_y:post_bottom_y, post_x1:post_x2]
-                cv2.imwrite("data/flow_a_post_crop.png", post_crop)
-                ocr_data = ocr.recognize_with_segments(post_crop)
-            else:
-                print(" -> Không có nút 'Xem thêm' (bài viết đã hiển thị đầy đủ).")
+            if valid_new:
+                target_anchor = valid_new[0]
 
-            # Full OCR text combining caption and all text on images
-            full_post_text = ocr_data.get("full_text", "").strip()
-            print(f"\n[Kết quả OCR Lens] Đọc trọn vẹn nội dung bài viết (Text + Ảnh):")
+            # Full OCR text combining all passes
+            full_post_text = context_memory.get_full_context()
+            print(f"\n[Tổng Hợp PostContextMemory] Trọn vẹn nội dung bài viết ({context_memory.line_count} dòng, {len(full_post_text)} ký tự):")
             print(f"\"\"\"\n{full_post_text}\n\"\"\"")
 
-            if not full_post_text or len(full_post_text) < 5:
-                print("[!] Nội dung bài viết quá ngắn hoặc không đọc được chữ. Cuộn tiếp...")
+            if not context_memory.is_sufficient(min_length=15):
+                print("[!] Nội dung bài viết không đủ ngữ cảnh để bình luận. Cuộn tiếp...")
                 input_ctrl.move_to(feed_center)
                 input_ctrl.scroll(-3)
                 return
@@ -223,20 +251,18 @@ def run_dryrun():
             # -------------------------------------------------------------
             # BƯỚC 6: COMMENT VÀO BÀI VIẾT (GÕ VÀ SAFEGUARD DRY-RUN)
             # -------------------------------------------------------------
-            # If we clicked 'Xem thêm', focus was moved to the link; re-focus the comment box
-            if expanded_post:
-                print("\n[Bước 6] Đưa focus trở lại ô bình luận sau khi vừa click 'Xem thêm'...")
-                comment_click_pt = detector.get_comment_button_center(target_anchor, feed_img)
-                screen_comment_btn = Point(
-                    x=target_win.rect.x + comment_click_pt.x,
-                    y=target_win.rect.y + comment_click_pt.y,
-                )
-                input_ctrl.move_to(screen_comment_btn)
-                input_ctrl.sleep_random(0.2, 0.4)
-                input_ctrl.click(screen_comment_btn)
-                input_ctrl.sleep_random(0.5, 0.8)
+            print("\n[Bước 6] Định vị và lấy focus chuẩn xác vào ô comment...")
+            comment_click_pt = detector.get_comment_button_center(target_anchor, feed_img)
+            screen_comment_btn = Point(
+                x=target_win.rect.x + comment_click_pt.x,
+                y=target_win.rect.y + comment_click_pt.y,
+            )
+            input_ctrl.move_to(screen_comment_btn)
+            input_ctrl.sleep_random(0.2, 0.4)
+            input_ctrl.click(screen_comment_btn)
+            input_ctrl.sleep_random(0.5, 0.8)
 
-            print(f"\n[Bước 6] Gõ comment vào ô input đã sẵn sàng...")
+            print(f" -> Gõ comment vào ô input đã sẵn sàng...")
             input_ctrl.type_text(comment_to_type)
 
             print("\n[Bước 7] Dừng quan sát 2.5s để bạn kiểm tra vị trí con trỏ và nội dung comment...")

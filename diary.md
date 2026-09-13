@@ -387,3 +387,24 @@ Lăn (Scroll) ➔ Thấy post (Anchor detect) ➔ Nhấn nút Comment ➔ Đọc
    - Thời gian phản hồi giảm từ $\approx 8.6\text{s}$ xuống chỉ còn **$2.1\text{s} - 2.5\text{s}$** (nhanh hơn gấp 3.5 lần).
    - Tăng độ bền của parser với cơ chế 3 tầng fallback (Direct JSON $\to$ Regex Block $\to$ Regex Field Extractor).
    - Toàn bộ test suite: **30/30 tests PASSED (100%)**.
+
+---
+
+## 16. Multi-Pass Scroll & Stitch OCR Reader Với PostContextMemory
+
+1. **Hiện Tượng Thực Tế:**
+   - Khi click vào nút hình bong bóng (Comment) trên action bar ở vị trí thấp trên màn hình ($Y > 700$), JavaScript của Facebook tự động cuộn màn hình xuống để đưa ô nhập comment vào giữa viewport.
+   - Thao tác tự cuộn này vô tình đẩy phần thân/đỉnh bài viết (caption, ảnh, tiêu đề) vượt lên trên mép trên màn hình, khiến vùng crop tĩnh chỉ chụp phải khoảng trắng hoặc danh sách bình luận bên dưới, dẫn đến OCR trả về rỗng `""`.
+
+2. **Giải Pháp Kiến Trúc: Multi-Pass Scroll & PostContextMemory:**
+   - **Thực thể `PostContextMemory` (`src/domain/entities/context_memory.py`):**
+     * Tự động lọc rác hệ thống Facebook (Thích, Bình luận, Chia sẻ, Viết bình luận công khai, Xem thêm...).
+     * Hợp nhất văn bản (stitching) và loại bỏ trùng lặp (deduplication) giữa các lần quét có phần giao nhau.
+     * Cung cấp phương thức `is_sufficient()` kiểm tra độ phong phú của context.
+   - **Quy Trình Cuộn Đọc Đa Tầng:**
+     * **Đợt 1 (Đỉnh bài):** Cuộn ngược lên trên (+3 nấc) $\to$ Chụp đỉnh bài $\to$ Lens OCR $\to$ Nạp vào Memory $\to$ Quét và click bung "Xem thêm" nếu có.
+     * **Đợt 2 (Thân bài & Ảnh):** Cuộn xuống (-3 nấc) $\to$ Chụp phần giữa & ảnh $\to$ Lens OCR $\to$ Nạp tiếp vào Memory (không bị trùng lặp dòng).
+     * **Đợt 3 (Tái định vị & Focus):** Định vị lại action bar $\to$ Click nút comment để con trỏ bàn phím chắc chắn nằm bên trong ô nhập $\to$ DeepSeek nhận context trọn vẹn $\to$ Gõ comment an toàn.
+   - **Kiểm Thử:**
+     * Bổ sung unit test `tests/test_context_memory.py` (3/3 passed).
+     * Toàn bộ test suite: **33/33 tests PASSED (100%)**.
