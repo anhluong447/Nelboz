@@ -30,6 +30,11 @@ class IInputController(ABC):
         pass
 
     @abstractmethod
+    def clear_input(self) -> None:
+        """Clears text in current active field (e.g. Ctrl+A -> Backspace)."""
+        pass
+
+    @abstractmethod
     def sleep_random(self, min_sec: float, max_sec: float) -> None:
         """Pauses execution for a random duration sampled from a realistic distribution."""
         pass
