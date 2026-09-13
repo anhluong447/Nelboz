@@ -20,8 +20,10 @@ from src.infrastructure.ocr.mock_recognizer import MockTextRecognizer
 from src.infrastructure.ocr.lens_ocr_recognizer import LensOcrRecognizer
 from src.infrastructure.nlp_filter.tfidf_logistic_filter import TfidfLogisticFilter
 from src.infrastructure.llm.mock_llm_client import MockLLMClient
+from src.infrastructure.llm.cloud_llm_client import CloudLLMClient
 from src.infrastructure.input.pynput_controller import PynputHumanController
 from src.infrastructure.limiter.sliding_rate_limiter import SlidingRateLimiter
+
 
 from src.application.use_cases.feed_comment_flow import FeedCommentUseCase
 from src.application.use_cases.thread_reply_flow import ThreadReplyUseCase
@@ -74,7 +76,15 @@ class Container:
 
 
         # LLM
-        self.llm_client: ILLMClient = MockLLMClient()
+        if not self.use_mocks:
+            cloud_llm = CloudLLMClient()
+            if cloud_llm.is_configured():
+                self.llm_client: ILLMClient = cloud_llm
+            else:
+                self.llm_client = MockLLMClient()
+        else:
+            self.llm_client = MockLLMClient()
+
 
         # Input
         self.input_ctrl: IInputController = PynputHumanController(config=self.config.input)

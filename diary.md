@@ -322,4 +322,55 @@ Dự án đã tích hợp thành công giải pháp trích xuất văn bản đ�
    - File [test_lens_ocr.py](file:///d:/Shits/Prj/autoBot/tests/test_lens_ocr.py): Bổ sung 3 test case mới.
    - Toàn bộ test suite: **26/26 tests PASSED (100%)**.
 
+---
 
+## 13. Tích Hợp OpenRouter LLM (`deepseek/deepseek-v4-flash-0731`) & Hoàn Thiện Persona AI Cho Flow A & B
+
+Dự án đã hoàn thiện tầng tư duy ngôn ngữ tự nhiên bằng việc kết nối OpenRouter API với mô hình `deepseek/deepseek-v4-flash-0731`:
+
+1. **Thiết Kế Persona AI & Nguyên Tắc An Toàn (Safety Gate):**
+   - **Giọng văn thuần Việt 100%:** Ngắn gọn 1-2 câu, tự nhiên, gần gũi, dí dỏm. Tuyệt đối loại bỏ các câu máy móc khuôn mẫu của bot và chặn hoàn toàn việc lẫn từ Hán/tiếng Trung.
+   - **Bộ lọc an toàn tự động (`should_act: false`):** Tự động từ chối tương tác với các nội dung quảng cáo cờ bạc, cá cược, lừa đảo, kéo nhóm, hoặc bài post tiêu cực gay gắt.
+   - **Ép chuẩn JSON Schema:** Luôn trả về cấu trúc `{"should_act": bool, "reason": str, "text": str}` với cơ chế làm sạch markdown codeblock an toàn.
+
+2. **Cập Nhật Clean Architecture:**
+   - File [cloud_llm_client.py](file:///d:/Shits/Prj/autoBot/src/infrastructure/llm/cloud_llm_client.py): Kế thừa `ILLMClient`, tích hợp `requests` gọi OpenRouter API, timeout 15s, fallback an toàn khi gặp sự cố mạng.
+   - File [container.py](file:///d:/Shits/Prj/autoBot/src/container.py): Tự động phát hiện `OPENROUTER_API_KEY` từ `.env` để tiêm `CloudLLMClient` làm LLM client chính (fallback về `MockLLMClient`).
+   - Cập nhật [run_flow_a_dryrun.py](file:///d:/Shits/Prj/autoBot/scripts/run_flow_a_dryrun.py) & [run_flow_b_dryrun.py](file:///d:/Shits/Prj/autoBot/scripts/run_flow_b_dryrun.py): Kết nối liền mạch chu trình: `Chụp UI` $\to$ `Lens OCR đọc chữ` $\to$ `DeepSeek đánh giá & sinh nội dung` $\to$ `Bézier click` $\to$ `Gõ nội dung AI sinh` $\to$ `Dừng 2.5s` $\to$ `Xóa sạch an toàn`.
+
+3. **Kết Quả Đo Đạc & Kiểm Thử:**
+   - Benchmark [benchmark_llm.py](file:///d:/Shits/Prj/autoBot/scripts/benchmark_llm.py):
+     * Kịch bản 1 (Bài viết hồ Tây mùa thu): Sinh comment đồng cảm, đậm chất thu Hà Nội (`Latency: 8.6s`).
+     * Kịch bản 2 (Bình luận gen Z công sở): Sinh reply tự nhiên, xưng hô "tui - mấy bạn" cực mượt (`Latency: 3.7s`).
+     * Kịch bản 3 (Game bài đổi thưởng): Từ chối tương tác 100% (`should_act = False`).
+   - Unit Tests [test_cloud_llm.py](file:///d:/Shits/Prj/autoBot/tests/test_cloud_llm.py): 4/4 tests pass (bao gồm cả live API test).
+   - Toàn bộ test suite: **30/30 tests PASSED (100%)**.
+---
+
+## 14. Chuẩn Hóa Chu Trình Flow A (Feed Comment Pipeline)
+
+Dựa trên yêu cầu nghiệp vụ thực tế, chu trình tương tác bảng tin (Flow A) trong [run_flow_a_dryrun.py](file:///d:/Shits/Prj/autoBot/scripts/run_flow_a_dryrun.py) đã được chuẩn hóa chính xác theo chuỗi hành vi:
+
+```
+Lăn (Scroll) ➔ Thấy post (Anchor detect) ➔ Nhấn nút Comment ➔ Đọc bài cả Text + Ảnh bằng OCR (Bung 'Xem thêm' nếu có) ➔ Comment (DeepSeek sinh & gõ)
+```
+
+### Chi Tiết Kỹ Thuật Từng Bước:
+1. **Lăn (Scroll Feed):** Chuột nằm ở trung tâm feed, cuộn mượt bằng `scroll(-2)` mô phỏng cuộn tay người dùng.
+2. **Thấy Post (Anchor Detection):** Quét action bar (`Like · Comment · Share`) trong dải an toàn $Y \in [280, 950]$ để đảm bảo toàn bộ thân bài viết phía trên không bị che khuất bởi thanh tab Cốc Cốc ($Y < 185$).
+3. **Nhấn Nút Comment:**
+   - Dùng Template Matching (`feed_comment.png`) định vị tâm icon bong bóng chat với độ tin cậy $\ge 0.65$.
+   - Di chuột Bézier sinh học và click vào nút Comment để mở ô input bình luận bên dưới.
+4. **Đọc Bài Cả Text Cả Ảnh Bằng Google Lens OCR (Bung "Xem Thêm"):**
+   - Chụp viewport sau khi mở ô comment. Crop toàn bộ bài viết từ $Y \ge 185$ đến action bar.
+   - Lens OCR trích xuất cả caption lẫn chữ nằm trên ảnh / infographic / meme.
+   - Quét danh sách phân đoạn (segments) tìm cụm từ `"Xem thêm"` / `"See more"`.
+   - **Nếu có "Xem thêm":**
+     + Tính tọa độ tâm bounding box từ phân đoạn OCR, di chuột Bézier và click vào để bung toàn bộ bài viết.
+     + Chờ animation mở rộng ($0.8\text{s} - 1.2\text{s}$), chụp lại và re-detect lại action bar (vì bài viết dài ra đẩy action bar xuống).
+     + Chạy Lens OCR lại trên bài viết đã bung để lấy 100% nội dung đầy đủ.
+5. **Comment (DeepSeek & Tái Focus Chuẩn):**
+   - Truyền nội dung bài viết hoàn chỉnh vào DeepSeek AI qua OpenRouter để phân tích ngữ cảnh và sinh câu bình luận tự nhiên, thuần Việt.
+   - **Đặc biệt:** Do thao tác click `"Xem thêm"` ở bước 4 có thể làm mất focus khỏi ô input comment hoặc đẩy ô comment xuống thấp hơn, bot sẽ tự động click tái kích hoạt (re-focus) ô comment trước khi gõ.
+   - Gõ comment mượt mà theo tốc độ phím sinh học.
+   - Ở chế độ Dry-run: Dừng quan sát $2.5\text{s} \to$ Xóa sạch (`Ctrl+A` $\to$ `Backspace`) an toàn tuyệt đối.

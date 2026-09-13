@@ -18,12 +18,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cv2
 import numpy as np
 from src.domain.entities.geometry import Point
+from src.domain.entities.decision import ActionType
 from src.infrastructure.window.win32_window_manager import Win32WindowManager
 from src.infrastructure.capture.mss_screen_capture import MssScreenCapture
 from src.infrastructure.vision.anchor_detector import AnchorDetector
 from src.infrastructure.vision.feed_card_segmenter import FeedCardSegmenter
 from src.infrastructure.vision.comment_grouper import CommentThreadGrouper
 from src.infrastructure.vision.expand_reply_detector import ExpandReplyDetector
+from src.infrastructure.ocr.lens_ocr_recognizer import LensOcrRecognizer
+from src.infrastructure.llm.cloud_llm_client import CloudLLMClient
 from src.infrastructure.input.pynput_controller import PynputHumanController
 from src.infrastructure.input.fail_safe import default_fail_safe, EmergencyStopException
 
@@ -44,7 +47,10 @@ def run_flow_b_dryrun():
     feed_detector = AnchorDetector()
     grouper = CommentThreadGrouper(indent_threshold_px=75)
     expand_detector = ExpandReplyDetector()
+    ocr = LensOcrRecognizer()
+    llm = CloudLLMClient()
     input_ctrl = PynputHumanController()
+
 
     target_win = window_mgr.find_target_window(".*(Cốc Cốc|Coc Coc|Chrome|Facebook).*")
     if not target_win:
@@ -170,7 +176,7 @@ def run_flow_b_dryrun():
                 print(" -> Check 'data/flow_b_debug_crop.png' for inspection.")
                 return
 
-            # Step 3: Reply Button Location
+            # Step 3: Reply Target & OCR
             reply_center = target_comment.reply_button_box.center
             screen_reply_pt = Point(
                 x=target_win.rect.x + crop_x1 + reply_center.x,
@@ -181,26 +187,47 @@ def run_flow_b_dryrun():
             print(f" -> Comment: {target_comment.id} (Level {target_comment.level})")
             print(f" -> Reply Button Screen Coords: Point({screen_reply_pt.x}, {screen_reply_pt.y})")
 
-            # Step 4: Bézier Move & Click
-            print("\n[Step 4] Moving mouse via Cubic Bézier curve to 'Trả lời' button...")
+            tb = target_comment.text_box
+            comment_text = ""
+            if tb and content_crop is not None:
+                c_crop = content_crop[max(0, tb.y):min(content_crop.shape[0], tb.bottom), max(0, tb.x):min(content_crop.shape[1], tb.right)]
+                if c_crop.shape[0] >= 10 and c_crop.shape[1] >= 10:
+                    cv2.imwrite("data/flow_b_comment_crop.png", c_crop)
+                    comment_text = ocr.recognize_text(c_crop)
+
+            print(f"\n[Step 4] Google Lens OCR Reading Comment Text:")
+            print(f" -> \"{comment_text[:140]}...\"" if len(comment_text) > 140 else f" -> \"{comment_text or '(Chữ quá ngắn hoặc ảnh)'}\"")
+
+            print("\n[Step 5] Calling DeepSeek (OpenRouter) to evaluate and generate reply...")
+            decision = llm.evaluate_and_generate(comment_text or "Bình luận thú vị", ActionType.REPLY)
+            print(f" -> AI Decision: should_act = {decision.should_act} | reason = '{decision.reason}'")
+
+            if not decision.should_act:
+                print(" -> AI decided to skip this comment. Exiting dry-run...")
+                return
+
+            draft_reply = decision.text or "Chuẩn luôn, mình cũng đồng quan điểm với bạn!"
+
+            # Step 6: Bézier Move & Click
+            print("\n[Step 6] Moving mouse via Cubic Bézier curve to 'Trả lời' button...")
             input_ctrl.move_to(screen_reply_pt)
             input_ctrl.sleep_random(0.3, 0.6)
 
-            print("[Step 5] Clicking 'Trả lời' button to activate reply input...")
+            print("[Step 7] Clicking 'Trả lời' button to activate reply input...")
             input_ctrl.click(screen_reply_pt)
             input_ctrl.sleep_random(1.0, 1.5)
 
-            # Step 6: Type Draft Reply
-            draft_reply = "Cảm ơn bạn đã chia sẻ góc nhìn rất thú vị này ạ!"
-            print(f"\n[Step 6] Typing draft reply text: '{draft_reply}'...")
+            # Step 8: Type AI-Generated Reply
+            print(f"\n[Step 8] Typing AI-generated reply: '{draft_reply}'...")
             input_ctrl.type_text(draft_reply)
 
-            # Step 7: Observation Pause
-            print("\n[Step 7] Observation pause: Waiting 2.5s for you to inspect the reply box...")
+            # Step 9: Observation Pause
+            print("\n[Step 9] Observation pause: Waiting 2.5s for you to inspect the reply box...")
             input_ctrl.sleep_random(2.3, 2.8)
 
-            # Step 8: Safe Cleanup (Ctrl+A -> Backspace)
-            print("\n[Step 8] [DRY-RUN SAFEGUARD] Clearing input (Ctrl+A -> Backspace)...")
+            # Step 10: Safe Cleanup (Ctrl+A -> Backspace)
+            print("\n[Step 10] [DRY-RUN SAFEGUARD] Clearing input (Ctrl+A -> Backspace)...")
+
             input_ctrl.clear_input()
             input_ctrl.sleep_random(0.5, 0.8)
             print(" -> Cleaned up successfully! Zero comments were submitted.")
